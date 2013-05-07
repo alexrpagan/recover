@@ -59,12 +59,12 @@ type PullSegmentsReply struct {
 
 // TestSendSegment
 
-type TestSendSegmentArgs struct {
+type TestPullSegmentsArgs struct {
   Size int
-  TestSendHost string
+  Hosts []string
 }
 
-type TestSendSegmentReply struct {
+type TestPullSegmentsReply struct {
 }
 
 // TestWriteSegment

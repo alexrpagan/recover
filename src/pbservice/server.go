@@ -196,7 +196,6 @@ func (pb *PBServer) TestReadSegment(args *TestReadSegmentArgs, reply *TestReadSe
     go func(i int) {
       segment := Segment{}
       fname := strconv.Itoa(i)
-      fmt.Println(path.Join(SegPath, fname))
       segment.slurp(path.Join(SegPath, fname))
       wg.Done()
     }(i)
@@ -205,9 +204,39 @@ func (pb *PBServer) TestReadSegment(args *TestReadSegmentArgs, reply *TestReadSe
   return nil
 }
 
-func (pb *PBServer) TestSendSegment(args *TestSendSegmentArgs, reply *TestSendSegmentReply) error {
-//  sendargs  := new(PullSegmentsArgs)
-//  sendreply := new(PullSegmentsReply)
+func (pb *PBServer) TestPullSegments(args *TestPullSegmentsArgs, reply *TestPullSegmentsReply) error {
+  var wg sync.WaitGroup
+  port := strconv.Itoa(SrvPort)
+
+  for _, host := range args.Hosts {
+
+    if host == "" {
+      continue
+    }
+
+    wg.Add(1)
+    go func(host string) {
+
+      sendargs  := new(PullSegmentsArgs)
+      sendreply := new(PullSegmentsReply)
+
+      sendargs.Segments = make([]SegmentID, args.Size)
+      for i := 0; i < args.Size ; i++ {
+        sendargs.Segments[i] = SegmentID(i)
+      }
+
+      ok := call(host + ":" + port, "PBServer.PullSegments", sendargs, sendreply)
+
+      if ok {
+        for i := 0; i < args.Size ; i++ {
+          fmt.Println(host, len(sendreply.Segments[i].Ops))
+        }
+      }
+
+      wg.Done()
+    }(host)
+  }
+  wg.Wait()
   return nil
 }
 
@@ -222,13 +251,14 @@ func (pb *PBServer) PullSegments(args *PullSegmentsArgs, reply *PullSegmentsRepl
   var wg sync.WaitGroup
   for i, segId := range args.Segments {
     wg.Add(1)
-    go func(segId SegmentID) {
+    go func(i int, segId SegmentID) {
       segment := Segment{}
       fname := strconv.Itoa(int(segId))
+      fmt.Println(path.Join(SegPath, fname))
       segment.slurp(path.Join(SegPath, fname))
       segments[i] = segment
       wg.Done()
-    }(segId)
+    }(i, segId)
   }
   wg.Wait()
   reply.Segments = segments

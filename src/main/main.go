@@ -14,7 +14,6 @@ func main() {
 
   // test reading segments from disk and sending to another server
   var testsend = flag.Bool("ts", false, "Try sending some segments, then give up")
-  var testsendhost = flag.String("tsh", "localhost", "The host to send segments to")
 
   // test writing segments to disk
   var testwrite = flag.Bool("tw", false, "Write a few segments")
@@ -29,17 +28,25 @@ func main() {
 
   pb := pbservice.StartServer(*hostname)
 
-  if *testsend && *testsendhost != "" {
+  if *testsend {
     fmt.Println("Entering send host")
     go func() {
 
-      args  := &pbservice.TestSendSegmentArgs{}
-      reply := &pbservice.TestSendSegmentReply{}
+      args  := &pbservice.TestPullSegmentsArgs{}
+      reply := &pbservice.TestPullSegmentsReply{}
 
-      args.Size = 1
-      args.TestSendHost = *testsendhost
+      numServers := 3
+      hosts := make([]string, numServers)
+      for i:=2; i <= numServers; i++ {
+        hosts[i-1] = fmt.Sprintf("istc%d.csail.mit.edu", i)
+      }
 
-      pb.TestSendSegment(args, reply)
+      fmt.Println(hosts)
+
+      args.Size = 1  // how many 8mb log segs?
+      args.Hosts = hosts
+
+      pb.TestPullSegments(args, reply)
       block <- 1
     }()
   } else if (*testwrite) {
@@ -64,10 +71,8 @@ func main() {
       args.NumOfSegs = 30
 
       pb.TestReadSegment(args, reply)
-
       block <- 1
     }()
-
   }
 
   <-block

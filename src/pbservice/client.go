@@ -1,9 +1,9 @@
 package pbservice
 
+import "fmt"
 import "net/rpc"
 //import "viewservice"
 /*
-// import "fmt"
 // You'll probably need to uncomment this:
 import "time"
 
@@ -40,6 +40,7 @@ func call(srv string, rpcname string,
           args interface{}, reply interface{}) bool {
   c, errx := rpc.Dial("tcp", srv)
   if errx != nil {
+    fmt.Println(errx)
     return false
   }
   defer c.Close()
