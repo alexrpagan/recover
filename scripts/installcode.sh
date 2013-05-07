@@ -13,7 +13,7 @@ while read host; do
                       && . ./scripts/init.sh \
                       && ./scripts/killservers.sh \
                       && cd xfertest/src/main \
-                      && tmux -c 'go run main.go -h $host'" &
+                      && go run main.go -h $host" &
 done < servers
 
 wait
