@@ -206,8 +206,8 @@ func (pb *PBServer) TestReadSegment(args *TestReadSegmentArgs, reply *TestReadSe
 }
 
 func (pb *PBServer) TestSendSegment(args *TestSendSegmentArgs, reply *TestSendSegmentReply) error {
-  sendargs  := &pbservice.PullSegmentArgs{}
-  sendreply := &pbservice.TestSendSegmentReply{}
+//  sendargs  := new(PullSegmentsArgs)
+//  sendreply := new(PullSegmentsReply)
   return nil
 }
 
