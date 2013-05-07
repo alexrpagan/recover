@@ -2,4 +2,4 @@
 #
 # run with: . init.sh
 
-export GOPATH=$PWD
+export GOPATH=$PWD/..
