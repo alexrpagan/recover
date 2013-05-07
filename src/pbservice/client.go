@@ -33,6 +33,14 @@ Unmodified Code
 */
 
 
+// makes a new clerk for the pbservice which encapsulates a viewservice clerk
+func MakeClerk(vshost string, me string) *Clerk {
+  ck := new(Clerk)
+  ck.vs = viewservice.MakeClerk(me, vshost)
+  return ck
+}
+
+
 // sends an RPC
 func call(srv string, rpcname string,
           args interface{}, reply interface{}) bool {
@@ -48,13 +56,6 @@ func call(srv string, rpcname string,
     return true
   }
   return false
-}
-
-
-// makes a new clerk for the pbservice which encapsulates a viewservice clerk
-func MakeClerk(vshost string, me string) *Clerk {
-  ck := new(Clerk)
-  return ck
 }
 
 
@@ -79,11 +80,13 @@ func (ck *Clerk) Get(key string) string {
     ck.updateView()
   }
 
-  args := GetArgs{}
+  args := GetArgs{Key: key, Client: }
   args.Key = key
   var reply GetReply
 
+	// while (true)
   for {
+  	// if 
     ok := call(ck.view.Primary, "PBServer.Get", args, &reply)
     if ok == false {
       ck.updateView()
