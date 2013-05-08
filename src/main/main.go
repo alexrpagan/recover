@@ -42,7 +42,7 @@ func main() {
       // }
 
       args.Size = 1  // how many 8mb log segs?
-      args.Hosts = []string{'istc12.csail.mit.edu', 'istc13.csail.mit.edu'}
+      args.Hosts = []string{"istc12.csail.mit.edu", "istc13.csail.mit.edu"}
       pb.TestPullSegments(args, reply)
       block <- 1
     }()
