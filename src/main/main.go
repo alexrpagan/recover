@@ -35,17 +35,16 @@ func main() {
       args  := &pbservice.TestPullSegmentsArgs{}
       reply := &pbservice.TestPullSegmentsReply{}
 
-      numServers := 3
-      hosts := make([]string, numServers)
-      for i:=2; i <= numServers; i++ {
-        hosts[i-1] = fmt.Sprintf("istc%d.csail.mit.edu", i)
-      }
+      // numServers := 3
+      // hosts := make([]string, numServers)
+      // for i:=2; i <= numServers; i++ {
+      //   hosts[i-1] = fmt.Sprintf("istc%d.csail.mit.edu", i)
+      // }
 
       fmt.Println(hosts)
 
       args.Size = 1  // how many 8mb log segs?
-      args.Hosts = hosts
-
+      args.Hosts = []string{'istc12.csail.mit.edu', 'istc13.csail.mit.edu'}
       pb.TestPullSegments(args, reply)
       block <- 1
     }()

@@ -5,7 +5,7 @@ host1="istc"
 host2=".csail.mit.edu"
 user="apagan"
 
-for idx in {1..12}
+for idx in {1..13}
 do
     host="$host1$idx$host2";
     echo "Asking $host"
