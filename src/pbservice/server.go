@@ -208,11 +208,14 @@ func (pb *PBServer) TestPullSegments(args *TestPullSegmentsArgs, reply *TestPull
   var wg sync.WaitGroup
   port := strconv.Itoa(SrvPort)
 
+  t1 := time.Now().UnixNano()
   for _, host := range args.Hosts {
 
     if host == "" {
       continue
     }
+
+
 
     for cnt:=0; cnt < 30; cnt++ {
       wg.Add(1)
@@ -239,6 +242,11 @@ func (pb *PBServer) TestPullSegments(args *TestPullSegmentsArgs, reply *TestPull
 
   }
   wg.Wait()
+
+  t2 := time.Now().UnixNano()
+
+  fmt.Println(t2-t1)
+
   return nil
 }
 
