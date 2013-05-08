@@ -41,8 +41,6 @@ func main() {
       //   hosts[i-1] = fmt.Sprintf("istc%d.csail.mit.edu", i)
       // }
 
-      fmt.Println(hosts)
-
       args.Size = 1  // how many 8mb log segs?
       args.Hosts = []string{'istc12.csail.mit.edu', 'istc13.csail.mit.edu'}
       pb.TestPullSegments(args, reply)
