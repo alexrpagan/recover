@@ -7,7 +7,7 @@ import "runtime"
 
 func main() {
 
-  runtime.GOMAXPROCS(runtime.NumCPU())
+  runtime.GOMAXPROCS(16)
 
   // required
   var hostname = flag.String("h", "localhost", "The hostname of this server")
