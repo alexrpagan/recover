@@ -207,17 +207,15 @@ func (pb *PBServer) TestReadSegment(args *TestReadSegmentArgs, reply *TestReadSe
 func (pb *PBServer) TestPullSegments(args *TestPullSegmentsArgs, reply *TestPullSegmentsReply) error {
   var wg sync.WaitGroup
   port := strconv.Itoa(SrvPort)
-
   t1 := time.Now().UnixNano()
+
   for _, host := range args.Hosts {
 
     if host == "" {
       continue
     }
 
-
-
-    for cnt:=0; cnt < 30; cnt++ {
+    for cnt:=0; cnt < 300; cnt++ {
       wg.Add(1)
       go func(host string) {
 
@@ -262,8 +260,21 @@ func (pb *PBServer) PullSegments(args *PullSegmentsArgs, reply *PullSegmentsRepl
     wg.Add(1)
     go func(i int, segId SegmentID) {
       segment := Segment{}
-      fname := strconv.Itoa(int(segId))
-      segment.slurp(path.Join(SegPath, fname))
+      // fname := strconv.Itoa(int(segId))
+      // segment.slurp(path.Join(SegPath, fname))
+      //segment := Segment{}
+      segment.ID = SegmentID(i)
+      for {
+        op := Op{}
+        op.Client = ClientID(0)
+        op.Request = RequestID(0)
+        op.Type = PutOp
+        op.Key = "foo foo foo foo foo foo foo foo foo foo"
+        op.Value = "bar bar bar bar bar bar bar bar bar bar"
+        if segment.append(op) == false {
+          break
+        }
+      }
       segments[i] = segment
       wg.Done()
     }(i, segId)
