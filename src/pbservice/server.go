@@ -260,21 +260,8 @@ func (pb *PBServer) PullSegments(args *PullSegmentsArgs, reply *PullSegmentsRepl
     wg.Add(1)
     go func(i int, segId SegmentID) {
       segment := Segment{}
-      // fname := strconv.Itoa(int(segId))
-      // segment.slurp(path.Join(SegPath, fname))
-      //segment := Segment{}
-      segment.ID = SegmentID(i)
-      for {
-        op := Op{}
-        op.Client = ClientID(0)
-        op.Request = RequestID(0)
-        op.Type = PutOp
-        op.Key = "foo foo foo foo foo foo foo foo foo foo"
-        op.Value = "bar bar bar bar bar bar bar bar bar bar"
-        if segment.append(op) == false {
-          break
-        }
-      }
+      fname := strconv.Itoa(int(segId))
+      segment.slurp(path.Join(SegPath, fname))
       segments[i] = segment
       wg.Done()
     }(i, segId)
