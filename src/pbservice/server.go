@@ -221,10 +221,9 @@ func (pb *PBServer) TestPullSegments(args *TestPullSegmentsArgs, reply *TestPull
         sendargs  := new(PullSegmentsArgs)
         sendreply := new(PullSegmentsReply)
 
-        sendargs.Segments = make([]SegmentID, args.Size)
-        for i := 0; i < args.Size ; i++ {
-          sendargs.Segments[i] = SegmentID(i)
-        }
+        sendargs.Segments = make([]SegmentID, 1)
+
+        sendargs.Segments[0] = SegmentID(rand.Int63() % 30)
 
         ok := call(host + ":" + port, "PBServer.PullSegments", sendargs, sendreply)
 
@@ -247,7 +246,6 @@ func (pb *PBServer) PullSegments(args *PullSegmentsArgs, reply *PullSegmentsRepl
 
   // TODO: what if segments don't exist on disk?
   // TODO: limit on number of segments that can be pulled
-  // TODO: do segment lookups in parallel?
 
   // read in segments from disk
   segments := make([]Segment, len(args.Segments))
