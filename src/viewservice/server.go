@@ -55,7 +55,7 @@ type ViewServer struct {
 	currentView View
 	viewPending bool
 	pendingView View
-	criticalMassReached bool						// minimum number of servers/primaries reached
+	criticalMassReached bool				// minimum number of servers/primaries reached
 	
 	// server states
 	serverPings map[string] time.Time		// all servers including primaries, backups, and unused
@@ -213,20 +213,62 @@ func (vs *ViewServer) Recover(deadServer string) {
 	}
 	
 	// ask every live server which shards they have
-	args := make([]QueryRangesArgs, len(vs.serversAlive))
+	args := QueryRangesArgs{ShardsToRecover: shardsToRecover}
 	replies := make([]QueryRangesReply, len(vs.serversAlive))
+	// the earlier we stop using len(vs.*), the earlier we can release the lock
+	repliesSuccesful := make([]bool, len(replies))
 	
 	i := 0
+	repliesFinished := 0
+	repliesFinishedLock sync.Mutex
 	
 	for server := range vs.serversAlive {
 	
-		go call(server, "PBService.QueryRanges", args[i], &replies[i])
+		go func() {
+		
+			repliesFinishedLock.Lock()
+			defer repliesFinishedLock.Unlock()
+		
+			repliesSuccesful[i] = call(server, "PBService.QueryRanges", args, &replies[i])			
+			repliesFinished++
+		
+		}
 		
 		i++
 	
 	}
 	
+	// wait until all of the threads have returned
+	for {
 	
+		time.Sleep(QUERY_RANGES_SLEEP_INTERVAL)
+		
+		repliesFinishedLock.Lock()
+		
+		if repliesFinished >= len(replies) {
+		
+			repliesFinished.Unlock()
+			
+			break
+		
+		}
+		
+		repliesFinishedLock.Unlock()
+	
+	}
+	
+	// keep track of which servers have which ranges
+	serverRanges := make(map[string] []Range)
+	
+	for i = 0; i < len(replies); i++ {
+	
+		if repliesSuccesful[i] {
+		
+			replies
+		
+		}
+	
+	}
 
 }
 

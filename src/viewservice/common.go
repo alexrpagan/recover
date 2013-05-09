@@ -9,6 +9,7 @@ const DEAD_PINGS = 5
 const REPLICATION_LEVEL = 3
 const CRITICAL_MASS = 8
 const NUMBER_OF_SHARDS = 100
+const QUERY_RANGES_SLEEP_INTERVAL = time.Millisecond * 300
 
 
 type View struct {
@@ -52,5 +53,15 @@ type QueryRangesArgs {
 }
 
 type QueryRangesReply {
+
+	ServerName string
+	Ranges []Range
+
+}
+
+type Range struct {
+
+	low int
+	high int
 
 }
