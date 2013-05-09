@@ -207,6 +207,7 @@ func (pb *PBServer) TestReadSegment(args *TestReadSegmentArgs, reply *TestReadSe
 func (pb *PBServer) TestPullSegments(args *TestPullSegmentsArgs, reply *TestPullSegmentsReply) error {
   var wg sync.WaitGroup
   port := strconv.Itoa(SrvPort)
+  t1 := time.Now().UnixNano()
 
   for _, host := range args.Hosts {
 
@@ -214,17 +215,16 @@ func (pb *PBServer) TestPullSegments(args *TestPullSegmentsArgs, reply *TestPull
       continue
     }
 
-    for cnt:=0; cnt < 30; cnt++ {
+    for cnt:=0; cnt < 300; cnt++ {
       wg.Add(1)
       go func(host string) {
 
         sendargs  := new(PullSegmentsArgs)
         sendreply := new(PullSegmentsReply)
 
-        sendargs.Segments = make([]SegmentID, args.Size)
-        for i := 0; i < args.Size ; i++ {
-          sendargs.Segments[i] = SegmentID(i)
-        }
+        sendargs.Segments = make([]SegmentID, 1)
+
+        sendargs.Segments[0] = SegmentID(rand.Int63() % 30)
 
         ok := call(host + ":" + port, "PBServer.PullSegments", sendargs, sendreply)
 
@@ -240,6 +240,11 @@ func (pb *PBServer) TestPullSegments(args *TestPullSegmentsArgs, reply *TestPull
 
   }
   wg.Wait()
+
+  t2 := time.Now().UnixNano()
+
+  fmt.Println(t2-t1)
+
   return nil
 }
 
@@ -247,7 +252,6 @@ func (pb *PBServer) PullSegments(args *PullSegmentsArgs, reply *PullSegmentsRepl
 
   // TODO: what if segments don't exist on disk?
   // TODO: limit on number of segments that can be pulled
-  // TODO: do segment lookups in parallel?
 
   // read in segments from disk
   segments := make([]Segment, len(args.Segments))
