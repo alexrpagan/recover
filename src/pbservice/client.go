@@ -1,41 +1,47 @@
+/*
+*********************
+Package and Imports
+*********************
+*/
+
+
 package pbservice
 
-import "fmt"
+
+import "viewservice"
 import "net/rpc"
-//import "viewservice"
-/*
-// You'll probably need to uncomment this:
 import "time"
 
 
+/*
+*********************
+Unmodified Structures
+*********************
+*/
+
+
+// clerk for the pbservice which encapsulates a viewservice clerk
 type Clerk struct {
+	vs *viewservice.Clerk
 }
 
+
+/*
+*********************
+Unmodified Code
+*********************
+*/
+
+
+// makes a new clerk for the pbservice which encapsulates a viewservice clerk
 func MakeClerk(vshost string, me string) *Clerk {
   ck := new(Clerk)
+  ck.vs = viewservice.MakeClerk(me, vshost)
   return ck
 }
 
 
-//
-// call() sends an RPC to the rpcname handler on server srv
-// with arguments args, waits for the reply, and leaves the
-// reply in reply. the reply argument should be a pointer
-// to a reply structure.
-//
-// the return value is true if the server responded, and false
-// if call() was not able to contact the server. in particular,
-// the reply's contents are only valid if call() returned true.
-//
-// you should assume that call() will time out and return an
-// error after a while if it doesn't get a reply from the server.
-//
-// please use call() to send all RPCs, in client.go and server.go.
-// please don't change this function.
-//
-
-*/
-
+// sends an RPC
 func call(srv string, rpcname string,
           args interface{}, reply interface{}) bool {
   c, errx := rpc.Dial("tcp", srv)
@@ -52,15 +58,22 @@ func call(srv string, rpcname string,
   return false
 }
 
-/*
 
-//
-// fetch a key's value from the current primary;
-// if they key has never been set, return "".
-// Get() must keep trying until it either the
-// primary replies with the value or the primary
-// says the key doesn't exist (has never been Put().
-//
+/*
+*********************
+Modified Structures
+*********************
+*/
+
+
+/*
+*********************
+Modified Code
+*********************
+*/
+
+
+// get a value for the key from the pbservice
 func (ck *Clerk) Get(key string) string {
   // what if no view has been chosen by the time this has been called?
   if ck.viewIsInvalid() {
@@ -71,6 +84,7 @@ func (ck *Clerk) Get(key string) string {
   args.Key = key
   var reply GetReply
 
+	// retry Get until succesful, updating view each attempt
   for {
     ok := call(ck.view.Primary, "PBServer.Get", args, &reply)
     if ok == false {
@@ -87,10 +101,8 @@ func (ck *Clerk) Get(key string) string {
   return reply.Value
 }
 
-//
-// tell the primary to update key's value.
-// must keep trying until it succeeds.
-//
+
+// put a value for the key from the pbservice
 func (ck *Clerk) Put(key string, value string) {
   if ck.viewIsInvalid() {
     ck.updateView()
@@ -113,12 +125,22 @@ func (ck *Clerk) Put(key string, value string) {
 
 }
 
+
+/*
+********************
+Utility Functions
+********************
+*/
+
+
+// test if a clerk's view is invalid
 func (ck *Clerk) viewIsInvalid() bool {
   return ck.view.Viewnum == 0
 }
 
+
+// update the clerk's view
 func (ck *Clerk) updateView() {
   currview, _ := ck.vs.Get()
   ck.view = currview
 }
-*/
