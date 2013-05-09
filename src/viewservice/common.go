@@ -54,7 +54,7 @@ type QuerySegmentsArgs struct {
 type QuerySegmentsReply struct {
 
 	ServerName string
-	ShardsToSegments map[int] LogSegmentID
+	ShardsToSegments map[int] (map[LogSegmentID] bool)
 
 }
 

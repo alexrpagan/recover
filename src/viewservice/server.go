@@ -350,17 +350,21 @@ func (vs *ViewServer) Recover(deadServer string) {
 	
 		if querySegmentsReplySuccessful[i] {
 		
-			for shard, logSegmentID := querySegmentsReplies[i].ShardsToSegments {
+			for shard, segments := range querySegmentsReplies[i].ShardsToSegments {
 			
-				_, present := shardsToSegmentsToServers[shard][logSegmentID]
-			
-				if !present {
+				for logSegmentID, _ := range segments {
 				
-					shardsToSegmentsToServers[shard][logSegmentID] = make(map[string] bool)
+					_, present := shardsToSegmentsToServers[shard][logSegmentID]
+			
+					if !present {
+				
+						shardsToSegmentsToServers[shard][logSegmentID] = make(map[string] bool)
+				
+					}
+				
+					shardsToSegmentsToServers[shard][logSegmentID][querySegmentsReplies[i].ServerName] = true
 				
 				}
-				
-				shardsToSegmentsToServers[shard][logSegmentID][querySegmentsReplies[i].ServerName] = true
 			
 			}
 		

@@ -773,3 +773,67 @@ func StartServer(me string) *PBServer {
 
   return pb
 }
+
+
+/*
+type QuerySegmentsArgs struct {
+
+	ShardsToRecover map[int] bool							--> set of shards to recover; all bools should be true, it's just a set
+
+}
+
+type QuerySegmentsReply struct {
+
+	ServerName string
+	ShardsToSegments map[int] (map[LogSegmentID] bool)		-->	map of shards to sets of corresponding segments
+
+}
+*/
+// tell the viewserver which shards you have segments for and which segments you have
+func (pb *PBServer) QuerySegments(args *QuerySegmentsArgs, reply *QuerySegmentsReply) error {
+
+	reply.ServerName = pb.me
+
+	return nill
+
+}
+
+
+/*
+type ElectRecoveryMasterArgs struct {
+
+	ShardsToSegmentsToServers map[int] (map[LogSegmentID] (map[string] bool))
+															--> map of shards to recover, corresponding segments to retrieve, and set of servers containing each of those segments
+
+}
+
+type ElectRecoveryMasterReply struct {
+
+}
+*/
+// you have been elected a recovery master
+// recover the shards in ShardsToSegmentsToServers using the information in that data structure
+func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *ElectRecoveryMasterReply) error {
+
+	reply.ServerName = pb.me
+
+	return nill
+
+}
+
+
+// when done with recovery for a shard or group of shards (or all shards, it's flexible),
+// announce it to the viewserver by calling ViewServer.RecoveryCompleted
+//
+/*
+type RecoveryCompletedArgs struct {
+
+	ServerName string
+	ShardsRecovered []int
+
+}
+
+type RecoveryCompletedReply struct {
+
+}
+*/
