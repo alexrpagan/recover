@@ -8,8 +8,11 @@ const (
 
   ErrWrongServer = "ErrWrongServer"
 
-  // sent by backup when delusional server tries to forward or commit an operation
   ErrNotPrimary = "ErrNotPrimary"
+
+  ErrNotResponsible = "ErrNotResponsible"
+
+  ErrBackupFailure = "ErrBackupFailure"
 
   ErrNotPending = "ErrNotPending"
 
@@ -57,6 +60,7 @@ type GetReply struct {
 type ForwardOpArgs struct {
   Origin ServerID
   Op Op
+  Segment SegmentID
 }
 
 type ForwardOpReply struct {
@@ -64,17 +68,23 @@ type ForwardOpReply struct {
 }
 
 
-// Commit OP
-
-type CommitOpArgs struct {
+type FlushSegArgs struct {
   Origin ServerID
-  Op Op
-  Commit bool
+  OldSegment SegmentID
 }
 
-type CommitOpReply struct {
+type FlushSegReply struct {
   Err Err
 }
+
+// EnlistReplica
+
+type EnlistReplicaArgs struct {
+  Origin ServerID
+  Segment Segment
+}
+
+type EnlistReplicaReply struct {}
 
 
 // PullSegments
@@ -87,6 +97,9 @@ type PullSegmentsReply struct {
   Segments []Segment
 }
 
+
+//TESTING STUFF
+
 // TestSendSegment
 
 type TestPullSegmentsArgs struct {
@@ -94,8 +107,7 @@ type TestPullSegmentsArgs struct {
   Hosts []string
 }
 
-type TestPullSegmentsReply struct {
-}
+type TestPullSegmentsReply struct {}
 
 // TestWriteSegment
 
@@ -103,12 +115,10 @@ type TestWriteSegmentArgs struct {
   NumOfSegs int
 }
 
-type TestWriteSegmentReply struct {
-}
+type TestWriteSegmentReply struct {}
 
 type TestReadSegmentArgs struct {
   NumOfSegs int
 }
 
-type TestReadSegmentReply struct {
-}
+type TestReadSegmentReply struct {}

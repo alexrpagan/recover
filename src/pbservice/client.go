@@ -144,3 +144,12 @@ func (ck *Clerk) updateView() {
   currview, _ := ck.vs.Get()
   ck.view = currview
 }
+
+func key2shard(key string) int {
+  shard := 0
+  if len(key) > 0 {
+    shard = int(key[0])
+  }
+  shard %= shardmaster.NShards
+  return shard
+}
