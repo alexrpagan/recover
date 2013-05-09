@@ -31,6 +31,34 @@ const RepLevel = 3
 const SegPath = "/tmp/segment/"
 
 
+type PBServer struct {
+  mu sync.Mutex
+  l net.Listener
+  dead bool // for testing
+  unreliable bool // for testing
+  me string
+
+  // TODO: reference to shardmaster
+  //Config shardmaster.Config
+
+  log *Log
+
+  // pointers to PUTs live here.
+  store map[string]*Op
+
+  // backup buffers: map each server to a Segment.
+  buffers map[ServerID]*Segment
+
+  // keep track of operations that are pending
+  pending map[ServerID]Op
+
+  // which shards am I responsible for?
+  backedUpShards map[ServerID]map[SegmentID]bool
+
+  // primary's backup map
+  backups map[SegmentID]BackupGroup
+}
+
 // REQUEST
 
 type Request struct {
@@ -82,7 +110,6 @@ func (l *Log) newSegment(server ServerID) {
   seg.Active = true
   seg.ID = l.CurrSegID + 1
 
-  // TODO: how big do we make the operation slice?
   // TODO: how do we make the new digest?
   l.Segments[seg.ID] = seg
 }
@@ -135,31 +162,6 @@ type BackupGroup struct {
   Backups [RepLevel]string
 }
 
-type PBServer struct {
-  mu sync.Mutex
-  l net.Listener
-  dead bool // for testing
-  unreliable bool // for testing
-  me string
-
-  // TODO: reference to shardmaster
-  //Config shardmaster.Config
-
-  log *Log
-
-  // pointers to PUTs live here.
-  store map[string]*Op
-
-  // backup buffers: map each server to a Segment.
-  buffers map[ServerID]*Segment
-
-  // which shards am I responsible for?
-  backedUpShards map[ServerID]map[SegmentID]bool
-
-  // primary's backup map
-  backups map[SegmentID]BackupGroup
-}
-
 // for performance testing.
 func (pb *PBServer) TestWriteSegment(args *TestWriteSegmentArgs, reply *TestWriteSegmentReply) error {
   var wg sync.WaitGroup
@@ -210,50 +212,38 @@ func (pb *PBServer) TestPullSegments(args *TestPullSegmentsArgs, reply *TestPull
   t1 := time.Now().UnixNano()
 
   for _, host := range args.Hosts {
-
     if host == "" {
       continue
     }
-
     for cnt:=0; cnt < 300; cnt++ {
       wg.Add(1)
       go func(host string) {
-
         sendargs  := new(PullSegmentsArgs)
         sendreply := new(PullSegmentsReply)
-
         sendargs.Segments = make([]SegmentID, 1)
-
         sendargs.Segments[0] = SegmentID(rand.Int63() % 30)
-
         ok := call(host + ":" + port, "PBServer.PullSegments", sendargs, sendreply)
-
         if ok {
-          for i := 0; i < args.Size ; i++ {
-            fmt.Println(host, len(sendreply.Segments[i].Ops))
-          }
+          fmt.Println("segment from", host)
         }
-
         wg.Done()
       }(host)
     }
 
   }
   wg.Wait()
-
   t2 := time.Now().UnixNano()
-
   fmt.Println(t2-t1)
-
   return nil
 }
+
+
 
 func (pb *PBServer) PullSegments(args *PullSegmentsArgs, reply *PullSegmentsReply) error {
 
   // TODO: what if segments don't exist on disk?
   // TODO: limit on number of segments that can be pulled
 
-  // read in segments from disk
   segments := make([]Segment, len(args.Segments))
   var wg sync.WaitGroup
   for i, segId := range args.Segments {
@@ -270,6 +260,139 @@ func (pb *PBServer) PullSegments(args *PullSegmentsArgs, reply *PullSegmentsRepl
   fmt.Println("xfer", args)
   reply.Segments = segments
   return nil
+}
+
+
+func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
+  pb.mu.Lock()
+  defer pb.mu.Unlock()
+
+  // get shardnumber for key
+  // CHECK: am I the primary for this key
+
+  getOp := Op{}
+
+  res := pb.broadcast(getOp)
+
+  op, ok := pb.store[args.Key]
+
+  if ok == false {
+    reply.Err = ErrNoKey
+    return nil
+  }
+
+  reply.Err = OK
+  reply.Value = op.value
+  return nil
+}
+
+func (pb *PBServer) Put(args *PutArgs, reply *PutReply) error {
+  pb.mu.Lock()
+  defer pb.mu.Unlock()
+
+  // get shardnumber for key
+
+  // CHECK: am I the primary for this key
+
+  // create a PUT op
+
+  pb.store[args.Key] = args.Value
+
+  reply.Err = OK
+
+  return nil
+}
+
+func (pb *PBServer) ForwardOp(args *ForwardOpArgs, reply *ForwardOpReply) error {
+  pb.mu.Lock()
+  defer pb.mu.Unlock()
+
+  // TODO: am i responsible for this segment?
+  // TODO: this this server responsible for the corresponding shard?
+  if true {
+    pending, ok := pb.pending[args.Origin]
+    if ok {
+      // Write previous pending Op to segment
+    }
+    pb.pending[args.Origin] = args.Op
+  }
+
+  reply.Err = OK
+  return nil
+}
+
+
+func (pb *PBServer) broadcast(op Op, group BackupGroup) bool {
+
+  port := strconv.Itoa(SrvPort)
+
+  // setup
+  replychan := make(chan data)
+  ackchan   := make(chan data)
+
+  replies := make([]*ForwardOpReply, len(group))
+  acks    := make([]bool, len(group))
+
+  // set the args
+  fwdArgs  := make(ForwardOpArgs)
+  fwdArgs.Origin = pb.me
+  fwdArgs.Op = op
+
+  for i:= 0; i < 8; i++ {
+
+    to := 10 * time.Millisecond
+    count := 0
+
+    // for each guy who hasn't acked
+    for idx, backup := range group {
+      if (acks[idx] == false ) {
+        count += 1
+        go func(replychan chan, ackchan chan, idx int, ServerID backup) {
+          fwdReply := make(ForwardOpReply)
+          ack := call(backup + ":" + port, 'PBServer.ForwardOp', fwdArgs, fwdReply)
+          replychan <- data{idx, fwdReply}
+          ackchan   <- data{idx, fwdAck}
+        }(replychan, ackchan, idx, backup)
+      }
+    }
+
+    // collect up responses and acks
+    for i:= 0; i < count; i++ {
+      reply := <- replychan
+      replies[reply.i] = reply.val
+
+      ack := <- ackchan
+      acks[ack.i] = ack.val
+    }
+
+    numAcked := 0
+
+    // process the responses.
+    for idx, ack := range acks {
+      if ack == false {
+
+      } else {
+        reply := replies[idx]
+        if (reply.Err) {
+          return false
+        } else {
+          numAcked += 1
+        }
+      }
+    }
+
+    if numAcked == len(group) {
+      return true
+    }
+
+    time.Sleep(to)
+    if to < 10 * time.Second {
+      to *= 2
+    }
+  }
+
+  //wasnt able to ack everyone
+  return false
 }
 
 

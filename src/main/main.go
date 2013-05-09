@@ -4,22 +4,27 @@ import "pbservice"
 import "flag"
 import "fmt"
 import "runtime"
+import "runtime/pprof"
+
+// turn on profiling
+var cpuprofile = flag.String("prof", "", "write cpu profile to file")
+
+// required
+var hostname = flag.String("h", "localhost", "The hostname of this server")
+
+// test reading segments from disk and sending to another server
+var testsend = flag.Bool("ts", false, "Try sending some segments, then give up")
+
+// test writing segments to disk
+var testwrite = flag.Bool("tw", false, "Write a few segments")
+
+// test reading segments from disk
+var testread = flag.Bool("tr", false, "Read a few segments")
 
 func main() {
 
   runtime.GOMAXPROCS(16)
 
-  // required
-  var hostname = flag.String("h", "localhost", "The hostname of this server")
-
-  // test reading segments from disk and sending to another server
-  var testsend = flag.Bool("ts", false, "Try sending some segments, then give up")
-
-  // test writing segments to disk
-  var testwrite = flag.Bool("tw", false, "Write a few segments")
-
-  // test reading segments from disk
-  var testread = flag.Bool("tr", false, "Read a few segments")
 
   flag.Parse()
   block := make(chan int)
@@ -27,6 +32,15 @@ func main() {
   fmt.Println("Starting kvserver.")
 
   pb := pbservice.StartServer(*hostname)
+
+  if *cpuprofile != "" {
+    f, err := os.Create(*cpuprofile)
+    if err != nil {
+      log.Fatal(err)
+    }
+    pprof.StartCPUProfile(f)
+    defer pprof.StopCPUProfile()
+  }
 
   if *testsend {
     fmt.Println("Entering send host")
