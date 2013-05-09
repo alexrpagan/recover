@@ -288,28 +288,28 @@ func (vs *ViewServer) Recover(deadServer string) {
 	}
 	
 	// ask every live server which shards and segments they have
-	querySegmentArgs := QuerySegmentsArgs{ShardsToRecover: shardsToRecover}
-	querySegmentReplies := make([]QuerySegmentsReply, len(vs.serversAlive))
+	querySegmentsArgs := QuerySegmentsArgs{ShardsToRecover: shardsToRecover}
+	querySegmentsReplies := make([]QuerySegmentsReply, len(vs.serversAlive))
 	// the earlier we stop using vs fields, the earlier we can release the lock
 
 	// release the vs lock
 	vs.mu.Unlock()
 
-	querySegmentRepliesSuccesful := make([]bool, len(querySegmentReplies))
+	querySegmentsRepliesSuccesful := make([]bool, len(querySegmentsReplies))
 	
 	i := 0
 	querySegmentsRepliesFinished := 0
-	querySegmentRepliesFinishedLock sync.Mutex
+	querySegmentsRepliesFinishedLock sync.Mutex
 	
 	for server, _ := range vs.serversAlive {
 	
-		go func(i int) {
+		go func(j int) {
 		
-			querySegmentRepliesFinishedLock.Lock()
-			defer querySegmentRepliesFinishedLock.Unlock()
+			querySegmentsRepliesFinishedLock.Lock()
+			defer querySegmentsRepliesFinishedLock.Unlock()
 		
-			querySegmentRepliesepliesSuccesful[i] = call(server, "PBService.QuerySegments", querySegmentArgs, &querySegmentReplies[i])			
-			querySegmentRepliesFinished++
+			querySegmentsRepliesepliesSuccesful[j] = call(server, "PBService.QuerySegments", querySegmentsArgs, &querySegmentsReplies[j])
+			querySegmentsRepliesFinished++
 		
 		}(i)
 		
@@ -322,17 +322,17 @@ func (vs *ViewServer) Recover(deadServer string) {
 	
 		time.Sleep(QUERY_SEGMENTS_SLEEP_INTERVAL)
 		
-		querySegmentRepliesFinishedLock.Lock()
+		querySegmentsRepliesFinishedLock.Lock()
 		
-		if querySegmentRepliesFinished >= len(querySegmentReplies) {
+		if querySegmentsRepliesFinished >= len(querySegmentsReplies) {
 		
-			querySegmentRepliesFinished.Unlock()
+			querySegmentsRepliesFinished.Unlock()
 			
 			break
 		
 		}
 		
-		querySegmentRepliesFinishedLock.Unlock()
+		querySegmentsRepliesFinishedLock.Unlock()
 	
 	}
 	
@@ -346,11 +346,11 @@ func (vs *ViewServer) Recover(deadServer string) {
 	}
 	
 	// for each successful reply, iterate through ShardsToSegments and populate shardsToSegmentsToServers
-	for (i = 0; i < len(querySegmentReplies); i++) {
+	for (i = 0; i < len(querySegmentsReplies); i++) {
 	
-		if querySegmentReplySuccessful[i] {
+		if querySegmentsReplySuccessful[i] {
 		
-			for shard, logSegmentID := querySegmentReplies[i].ShardsToSegments {
+			for shard, logSegmentID := querySegmentsReplies[i].ShardsToSegments {
 			
 				_, present := shardsToSegmentsToServers[shard][logSegmentID]
 			
@@ -360,7 +360,7 @@ func (vs *ViewServer) Recover(deadServer string) {
 				
 				}
 				
-				shardsToSegmentsToServers[shard][logSegmentID][querySegmentReplies[i].ServerName] = true
+				shardsToSegmentsToServers[shard][logSegmentID][querySegmentsReplies[i].ServerName] = true
 			
 			}
 		
@@ -368,8 +368,11 @@ func (vs *ViewServer) Recover(deadServer string) {
 	
 	}
 	
+	// grab the vs lock
+	vs.mu.Lock()
+	
 	// convert vs.serversAlive to a slice in order to index into it
-	serversAliveSlice := make([]string, len(vs.serversAlive)
+	serversAliveSlice := make([]string, len(vs.serversAlive))
 	
 	i := 0
 	
@@ -378,6 +381,9 @@ func (vs *ViewServer) Recover(deadServer string) {
 		serversAliveSlice[i] = serverAlive
 	
 	}
+	
+	// release the vs lock
+	vs.mu.Unlock()
 	
 	// elect recovery masters in serversToShardsToSegmentsToServers
 	serversToShardsToSegmentsToServers := make(map[string] (map[int] (map[LogSegmentID] (map[string] bool))))
