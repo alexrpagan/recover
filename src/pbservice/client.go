@@ -80,13 +80,12 @@ func (ck *Clerk) Get(key string) string {
     ck.updateView()
   }
 
-  args := GetArgs{Key: key, Client: }
+  args := GetArgs{}
   args.Key = key
   var reply GetReply
 
-	// while (true)
+	// retry Get until succesful, updating view each attempt
   for {
-  	// if 
     ok := call(ck.view.Primary, "PBServer.Get", args, &reply)
     if ok == false {
       ck.updateView()
