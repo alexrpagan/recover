@@ -30,10 +30,91 @@ Unmodified Code
 *********************
 */
 
-
+// kill the server in tests
 func (vs *ViewServer) Kill() {
-  vs.dead = true
-  vs.l.Close()
+
+	vs.dead = true
+	vs.l.Close()
+
+}
+
+
+// start the server
+// actually modified, but just to add the modified fields, and it was getting annoying down below
+func StartServer(me string) *ViewServer {
+
+	vs := new(ViewServer)
+	vs.me = me
+
+	// set modified fields
+	vs.view = View{}
+	vs.criticalMassReached = false
+	vs.serverPings = make(map[string] time.Time)
+	vs.serversAlive = make(map[string] bool)
+	vs.primaryServers = make(map[string] bool)
+
+	// tell net/rpc about our RPC server and handlers.
+	rpcs := rpc.NewServer()
+	rpcs.Register(vs)
+
+	// prepare to receive connections from clients.
+	// change "unix" to "tcp" to use over a network.
+	os.Remove(vs.me) // only needed for "unix"
+	l, e := net.Listen("unix", vs.me);
+
+	if e != nil {
+	
+		log.Fatal("listen error: ", e);
+
+	}
+
+	vs.l = l
+
+	// please don't change any of the following code,
+	// or do anything to subvert it.
+
+	// create a thread to accept RPC connections from clients.
+	go func() {
+	
+		for vs.dead == false {
+		
+			conn, err := vs.l.Accept()
+			
+			if err == nil && vs.dead == false {
+			
+				go rpcs.ServeConn(conn)
+				
+			} else if err == nil {
+			
+				conn.Close()
+				
+			}
+			
+			if err != nil && vs.dead == false {
+		
+				fmt.Printf("ViewServer(%v) accept: %v\n", me, err.Error())
+				vs.Kill()
+			
+			}
+		
+		}
+	
+	}()
+
+	// create a thread to call tick() periodically.
+	go func() {
+	
+		for vs.dead == false {
+		
+			vs.tick()
+			time.Sleep(PING_INTERVAL)
+			
+		}
+		
+	}()
+	
+	return vs
+
 }
 
 
@@ -52,16 +133,13 @@ type ViewServer struct {
 	me string
 
 	// view state
-	currentView View
-	viewPending bool
-	pendingView View
+	view View
 	criticalMassReached bool				// minimum number of servers/primaries reached
 	
 	// server states
 	serverPings map[string] time.Time		// all servers including primaries, backups, and unused
-	serversAlive map[string] alive			// all servers which can currently communicate with the viewservice
+	serversAlive map[string] bool			// all servers which can currently communicate with the viewservice
 	primaryServers map[string] bool			// tracks which servers are primaries
-	viewsAcknowledged map[string] uint		// tracks latest views acknowledged by primaries
 
 }
 
@@ -81,7 +159,7 @@ func (vs *ViewServer) Get(args *GetArgs, reply *GetReply) error {
 	defer vs.mu.Unlock()
 
 	// reply with the current view
-	reply.CurrentView = vs.currentView
+	reply.View = vs.view
 
 	return nil
 
@@ -95,13 +173,12 @@ func (vs *ViewServer) Ping(args *PingArgs, reply *PingReply) error {
 	vs.mu.Lock()
 	defer vs.mu.Unlock()
 
-	// update the last ping, highest acknowledged view, and liveness for the sender
+	// update the last ping and liveness for the sender
 	vs.serverPings[args.ServerName] = time.Now()
-	vs.viewsAcknowledged[args.ServerName] = args.ViewNumber
 	vs.serversAlive[args.ServerName] = true
 	
 	// reply with the current view and serversAlive
-	reply.CurrentView = vs.currentView
+	reply.ViewNumber = vs.view.viewNumber
 	reply.ServersAlive = vs.serversAlive
 
 	return nil
@@ -147,12 +224,23 @@ func (vs *ViewServer) tick() {
 			
 			}
 			
+			// convert vs.primaryServers to a slice in order to index into it
+			primaryServersSlice := make([]string, len(vs.primaryServers)
+			
+			i := 0
+			
+			for primaryServer, _ := range vs.primaryServers {
+			
+				primaryServersSlice[i] = primaryServer
+			
+			}
+			
 			// create an initial view with shards distributed round-robin
-			vs.currentView = View{viewNumber: 1, shardsToPrimaries: make([]string, NUMBER_OF_SHARDS), serversAlive: vs.serversAlive}
+			vs.view = View{viewNumber: 1, shardsToPrimaries: make([]string, NUMBER_OF_SHARDS), serversAlive: vs.serversAlive}
 			
-			for (c = 0; c < NUMBER_OF_SHARDS; ++c) {
+			for (c := 0; c < NUMBER_OF_SHARDS; ++c) {
 			
-				vs.currentView.shardsToPrimaries[c] = vs.primaryServers[c % len(vs.primaryServers)]
+				vs.view.shardsToPrimaries[c] = primaryServersSlice[c % len(primaryServersSlice)]
 			
 			}
 			
@@ -160,28 +248,16 @@ func (vs *ViewServer) tick() {
 			vs.criticalMassReached = true
 		
 		}
-		
-		// return out of this regardless of outcome
-		// this just simplifies the logic so we can consider this block separately from the code below
-		return
 	
 	}
 	
 	// note that even if we dip below critical mass, we will keep skipping the previous block
 	// it's just there to prevent the system from flooding the first live server with shards prematurely
 	
-	// check if a view is pending and switch to it
-	if vs.viewPending {
-	
-		vs.viewPending = false
-		vs.currentView = vs.pendingView
-	
-	}
-	
 	// launch recovery for all dead primaries
 	for deadServer, _ := range deadServers {
 	
-		if vs.currentView.shardsToPrimaries[deadServer] {
+		if vs.view.shardsToPrimaries[deadServer] {
 		
 			go vs.Recover(deadServer)
 		
@@ -195,14 +271,13 @@ func (vs *ViewServer) tick() {
 // runs recovery for deadServer's shards
 func (vs *ViewServer) Recover(deadServer string) {
 
-	// grab the vs lock for the duration of the method
+	// grab the vs lock
 	vs.mu.Lock()
-	defer vs.mu.Unlock()
 
 	// figures out which shards are owned by deadServer
 	shardsToRecover := make(map[int] bool)
 	
-	for shard, server := range vs.currentView.shardsToPrimaries {
+	for shard, server := range vs.view.shardsToPrimaries {
 	
 		if server == deadServer {
 		
@@ -212,27 +287,31 @@ func (vs *ViewServer) Recover(deadServer string) {
 	
 	}
 	
-	// ask every live server which shards they have
-	args := QueryRangesArgs{ShardsToRecover: shardsToRecover}
-	replies := make([]QueryRangesReply, len(vs.serversAlive))
-	// the earlier we stop using len(vs.*), the earlier we can release the lock
-	repliesSuccesful := make([]bool, len(replies))
+	// ask every live server which shards and segments they have
+	querySegmentArgs := QuerySegmentsArgs{ShardsToRecover: shardsToRecover}
+	querySegmentReplies := make([]QuerySegmentsReply, len(vs.serversAlive))
+	// the earlier we stop using vs fields, the earlier we can release the lock
+
+	// release the vs lock
+	vs.mu.Unlock()
+
+	querySegmentRepliesSuccesful := make([]bool, len(querySegmentReplies))
 	
 	i := 0
-	repliesFinished := 0
-	repliesFinishedLock sync.Mutex
+	querySegmentsRepliesFinished := 0
+	querySegmentRepliesFinishedLock sync.Mutex
 	
-	for server := range vs.serversAlive {
+	for server, _ := range vs.serversAlive {
 	
-		go func() {
+		go func(i int) {
 		
-			repliesFinishedLock.Lock()
-			defer repliesFinishedLock.Unlock()
+			querySegmentRepliesFinishedLock.Lock()
+			defer querySegmentRepliesFinishedLock.Unlock()
 		
-			repliesSuccesful[i] = call(server, "PBService.QueryRanges", args, &replies[i])			
-			repliesFinished++
+			querySegmentRepliesepliesSuccesful[i] = call(server, "PBService.QuerySegments", querySegmentArgs, &querySegmentReplies[i])			
+			querySegmentRepliesFinished++
 		
-		}
+		}(i)
 		
 		i++
 	
@@ -241,93 +320,124 @@ func (vs *ViewServer) Recover(deadServer string) {
 	// wait until all of the threads have returned
 	for {
 	
-		time.Sleep(QUERY_RANGES_SLEEP_INTERVAL)
+		time.Sleep(QUERY_SEGMENTS_SLEEP_INTERVAL)
 		
-		repliesFinishedLock.Lock()
+		querySegmentRepliesFinishedLock.Lock()
 		
-		if repliesFinished >= len(replies) {
+		if querySegmentRepliesFinished >= len(querySegmentReplies) {
 		
-			repliesFinished.Unlock()
+			querySegmentRepliesFinished.Unlock()
 			
 			break
 		
 		}
 		
-		repliesFinishedLock.Unlock()
+		querySegmentRepliesFinishedLock.Unlock()
 	
 	}
 	
-	// keep track of which servers have which ranges
-	serverRanges := make(map[string] []Range)
+	// keep track of which segments are owned by which servers for each shard
+	shardsToSegmentsToServers := make(map[int] (map[LogSegmentID] (map[string] bool)))
 	
-	for i = 0; i < len(replies); i++ {
+	for shard, _ := range shardsToRecover {
 	
-		if repliesSuccesful[i] {
+		shardsToSegmentsToServers[shard] := make(map[LogSegmentID]) (map[string] bool))
+	
+	}
+	
+	// for each successful reply, iterate through ShardsToSegments and populate shardsToSegmentsToServers
+	for (i = 0; i < len(querySegmentReplies); i++) {
+	
+		if querySegmentReplySuccessful[i] {
 		
-			replies
+			for shard, logSegmentID := querySegmentReplies[i].ShardsToSegments {
+			
+				_, present := shardsToSegmentsToServers[shard][logSegmentID]
+			
+				if !present {
+				
+					shardsToSegmentsToServers[shard][logSegmentID] = make(map[string] bool)
+				
+				}
+				
+				shardsToSegmentsToServers[shard][logSegmentID][querySegmentReplies[i].ServerName] = true
+			
+			}
 		
 		}
+	
+	}
+	
+	// convert vs.serversAlive to a slice in order to index into it
+	serversAliveSlice := make([]string, len(vs.serversAlive)
+	
+	i := 0
+	
+	for serverAlive, _ := range vs.serversAlive {
+	
+		serversAliveSlice[i] = serverAlive
+	
+	}
+	
+	// elect recovery masters in serversToShardsToSegmentsToServers
+	serversToShardsToSegmentsToServers := make(map[string] (map[int] (map[LogSegmentID] (map[string] bool))))
+	
+	c := 0
+	
+	for shard, segmentsToServers := range shardsToSegmentsToServers {
+	
+		_, present := serversToShardsToSegmentsToServers[serversAliveSlice[c % len(serversAliveSlice)]]
+		
+		if !present {
+		
+			serversToShardsToSegmentsToServers[serversAliveSlice[c % len(serversAliveSlice)]] = make(map[int] (map[LogSegmentID] (map[string] bool)))
+		
+		}
+		
+		serversToShardsToSegmentsToServers[serversAliveSlice[c % len(serversAliveSlice)]][shard] = segmentsToServers
+		
+		c++
+	
+	}
+	
+	// send shardsToSegmentsToServers to each of the recovery masters in serversToShardsToSegmentsToServers
+	for recoveryMaster, recoveryData := range serversToShardsToSegmentsToServers {
+	
+		electRecoveryMasterArgs := ElectRecoveryMasterArgs{ShardsToSegmentsToServers: recoveryData}
+		electRecoveryMasterReply := ElectRecoveryMasterReply{}
+		
+		go call(recoveryMaster, "PBService.ElectRecoveryMaster", electRecoveryMasterArgs, &electRecoveryMasterReply)
 	
 	}
 
 }
 
 
-func StartServer(me string) *ViewServer {
+// updates the view after recovery of a shard is successful
+func (vs *ViewServer) RecoveryCompleted(args *RecoveryCompletedArgs, reply *RecoveryCompletedReply) error {
 
-  vs := new(ViewServer)
-  vs.me = me
+	// grab the vs lock for the duration of the method
+	vs.mu.Lock()
+	defer vs.mu.Unlock()
+	
+	// notice this is a much simpler model than lab 2
+	// there is no acknowledgement of views stored
+	// our failure model only deals with a single primary server failing
+	// we also don't support moving shards except for recovery
+	// under these circumstances, we have perfect consistency because only one primary is in charge of each shard until it dies
+	// when dead servers come back up, they can become log segment backups or primaries for future dead servers
 
-	// set modified fields
-	vs.currentView = View{}
-	vs.viewPending = false
-	vs.pendingView = View{}
-	vs.criticalMassReached = false
-	vs.serverPings = make(map[string] time.Time)
-	vs.serversAlive map[string]
-	vs.viewsAcknowledged = make(map[string] uint)
+	// inject all of the reassigned shards into the view and increment vs.view.viewNumber
+	for _, shard := range args.ShardsRecovered {
+	
+		vs.view.shardsToPrimaries[shard] = args.ServerName
+	
+	}
+	
+	vs.view.viewNumber++
 
-  // tell net/rpc about our RPC server and handlers.
-  rpcs := rpc.NewServer()
-  rpcs.Register(vs)
+	return nil
 
-  // prepare to receive connections from clients.
-  // change "unix" to "tcp" to use over a network.
-  os.Remove(vs.me) // only needed for "unix"
-  l, e := net.Listen("unix", vs.me);
-  if e != nil {
-    log.Fatal("listen error: ", e);
-  }
-  vs.l = l
-
-  // please don't change any of the following code,
-  // or do anything to subvert it.
-
-  // create a thread to accept RPC connections from clients.
-  go func() {
-    for vs.dead == false {
-      conn, err := vs.l.Accept()
-      if err == nil && vs.dead == false {
-        go rpcs.ServeConn(conn)
-      } else if err == nil {
-        conn.Close()
-      }
-      if err != nil && vs.dead == false {
-        fmt.Printf("ViewServer(%v) accept: %v\n", me, err.Error())
-        vs.Kill()
-      }
-    }
-  }()
-
-  // create a thread to call tick() periodically.
-  go func() {
-    for vs.dead == false {
-      vs.tick()
-      time.Sleep(PING_INTERVAL)
-    }
-  }()
-
-  return vs
 }
 
 

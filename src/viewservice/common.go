@@ -23,13 +23,12 @@ type View struct {
 type PingArgs struct {
 
 	ServerName string
-	ViewNumber uint
 
 }
 
 type PingReply struct {
 
-	CurrentViewNumber uint
+	ViewNumber uint
 	ServersAlive []string				// array of servers primaries can choose as backups
 
 }
@@ -41,27 +40,43 @@ type GetArgs struct {
 
 type GetReply struct {
 
-	CurrentView View
+	View View
 
 }
 
 
-type QueryRangesArgs {
+type QuerySegmentsArgs struct {
 
 	ShardsToRecover map[int] bool
 
 }
 
-type QueryRangesReply {
+type QuerySegmentsReply struct {
 
 	ServerName string
-	Ranges []Range
+	ShardsToSegments map[int] LogSegmentID
 
 }
 
-type Range struct {
 
-	low int
-	high int
+type ElectRecoveryMasterArgs struct {
+
+	ShardsToSegmentsToServers map[int] (map[LogSegmentID] (map[string] bool))
+
+}
+
+type ElectRecoveryMasterReply struct {
+
+}
+
+
+type RecoveryCompletedArgs struct {
+
+	ServerName string
+	ShardsRecovered []int
+
+}
+
+type RecoveryCompletedReply struct {
 
 }
