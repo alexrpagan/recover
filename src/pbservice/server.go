@@ -778,21 +778,6 @@ func StartServer(me string) *PBServer {
 }
 
 
-/*
-type QuerySegmentsArgs struct {
-
-	ShardsToRecover map[int] bool							--> set of shards to recover; all bools should be true, it's just a set
-
-}
-
-type QuerySegmentsReply struct {
-
-	ServerName string
-	ShardsToSegments map[int] (map[LogSegmentID] bool)		-->	map of shards to sets of corresponding segments
-
-}
-*/
-
 // tell the viewserver which shards you have segments for and which segments you have
 func (pb *PBServer) QuerySegments(args *QuerySegmentsArgs, reply *QuerySegmentsReply) error {
 
@@ -802,23 +787,7 @@ func (pb *PBServer) QuerySegments(args *QuerySegmentsArgs, reply *QuerySegmentsR
 
 }
 
-// recover the shards in ShardsToSegmentsToServers
-/*
-type ElectRecoveryMasterArgs struct {
-
-	ShardsToSegmentsToServers map[int] (map[LogSegmentID] (map[string] bool))
-															--> map of shards to recover, corresponding segments to retrieve, and set of servers containing each of those segments
-
-}
-
-type ElectRecoveryMasterReply struct {
-
-}
-*/
-
-
-// you have been elected a recovery master
-// recover the shards in ShardsToSegmentsToServers using the information in that data structure
+// recover the shards in args.ShardsToSegmentsToServers
 func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *ElectRecoveryMasterReply) error {
 
 	reply.ServerName = pb.me
@@ -831,7 +800,7 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 		// map from segments to shards to keep track of completed shards
 		segmentShards := make(map[int64] int)
 		
-		// assign the segment to the server with the smallest queryPlan so far
+		// assemble queryPlan by assigning segments to the server with the smallest queryPlan so far
 		for shard, segmentsToServers := range args.ShardsToSegmentsToServers {
 	
 			for segment, servers := range segmentsToServers {
@@ -863,19 +832,21 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 				}
 			
 				queryPlan[minServer][segment] = true
-				// remove servers from segments as they are tried so we won't retry a failed server
+				// remove servers from segments as they are tried so we won't retry a server twice
+				// note: this doesn't remove the server for ALL segments
+				// ->possible optimization: remove from ALL, but only AFTER server fails in goroutine below
 				delete(args.ShardsToSegmentsToServers[shard][segment], minServer)
 		
 			}
 	
 		}
 	
-		// execute the queryPlan
+		// 
 		var queryLock sync.Mutex
 		// most recent recovered puts by key to allow replaying of more recent puts from recovered log segments
-		keysToPuts := make(map[string] )
+		keysToPuts := make(map[string] PutOrder)
 		
-		// pull the segments from each of the servers in the queryPlan
+		// execute the queryPlan by pulling the segments from each of the servers
 		for server, segments := range queryPlan {
 	
 			// convert segments to a slice for sending
@@ -893,13 +864,13 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 		
 			// launch a goroutine to request the segments, replay the relevant log segments, and prune args.ShardsToSegmentsToServers
 			go func(backupServer string, requestedSegments []int64) {
-		
+			
+				// keep track of which shards have recovered successfully for reporting to the viewservice
+				completedShards := make(map[int] bool)
 				// request the segments
 				pullSegmentsArgs := PullSegmentsArgs{Segments: requestedSegments}
 				pullSegmentsReply := PullSegmentsReply{}
 				successful := call(server, "PBServer.PullSegments", pullSegmentsArgs, &pullSegmentsReply)
-				// keep track of which shards have recovered successfully for reporting to the viewservice
-				completedShards := make(map[int] bool)
 			
 				// upon receiving a reply, iterate through the segments, replay most recent ones, and remove them from args.ShardsToSegmentsToSenders
 				if successful {
@@ -910,7 +881,19 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 					for _, segment := range pullSegmentsReply.Segments {
 					
 						// replay put operations if they are more recent than other recovered puts for the same key
+						for opIndex, op := range segment.Ops {
 						
+							_, present := keysToPuts[op.Key]
+							
+							// if !present || (segment.ID greater || (segment.ID equal but opIndex greater)), replay and update
+							if !present || (segment.ID > keysToPuts[op.Key].SegmentID || (segment.ID == keysToPuts[op.Key].SegmentID && opIndex > keysToPuts[op.key].OpIndex)) {
+								
+								
+								keysToPuts[op.Key] = PutOrder{SegmentID: segment.ID, OpIndex: opIndex}
+							
+							}
+							
+						}
 						
 						// prune segments from args.ShardsToSegmentsToSenders
 						delete(args.ShardsToSegmentsToSenders[segmentShards[segment.ID]], segment.ID)
@@ -955,20 +938,3 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 	return nil
 
 }
-
-
-// when done with recovery for a shard or group of shards (or all shards, it's flexible),
-// announce it to the viewserver by calling ViewServer.RecoveryCompleted
-//
-/*
-type RecoveryCompletedArgs struct {
-
-	ServerName string
-	ShardsRecovered []int
-
-}
-
-type RecoveryCompletedReply struct {
-
-}
-*/

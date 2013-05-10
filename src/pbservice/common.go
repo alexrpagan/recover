@@ -120,4 +120,12 @@ type TestReadSegmentArgs struct {
   NumOfSegs int
 }
 
-type TestReadSegmentReply struct {}
+type TestReadSegmentReply struct {}i
+
+
+type PutOrder struct {
+
+	SegmentID int64
+	OpIndex int
+
+}
