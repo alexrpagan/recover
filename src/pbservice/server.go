@@ -105,20 +105,33 @@ type Log struct {
   CurrSegID int64
 }
 
+func (l *Log) init() {
+  seg := new(Segment)
+  seg.Size = 0
+  seg.Active = true
+  seg.ID = 1
+  seg.Digest = make([]int64, 0)
+
+  l.Segments[seg.ID] = seg
+  l.CurrSegID = seg.ID
+}
+
 func (l *Log) getCurrSegment() (seg *Segment, ok bool) {
   s, o := l.Segments[l.CurrSegID]
   return s, o
 }
 
 func (l *Log) newSegment() *Segment {
-  //prevSegment, _ := l.getCurrSegment()
+  prevSegment, _ := l.getCurrSegment()
   seg := new(Segment)
   seg.Size = 0
   seg.Active = true
   seg.ID = l.CurrSegID + 1
 
-  // TODO: how do we make the new digest?
+  seg.Digest = append(prevSegment.Digest, prevSegment.ID)
+
   l.Segments[seg.ID] = seg
+  l.CurrSegID = seg.ID
 
   return seg
 }
@@ -168,8 +181,8 @@ func (s *Segment) slurp (fromFile string) {
 
 // BACKUP GROUP INFO
 type BackupGroup struct {
-  Backups  [RepLevel]string
-  Liveness [RepLevel]bool
+  Backups  [RepLevel] string
+  Liveness [RepLevel] bool
 }
 
 
@@ -223,7 +236,9 @@ func (pb *PBServer) Put(args *PutArgs, reply *PutReply) error {
   group, ok := pb.backups[seg.ID]
 
   if ! ok {
-    // pick some new replicas
+    if pb.enlistReplicas(*seg) == false {
+      panic("could not enlist enough replicas")
+    }
   }
 
   // create operation
@@ -246,7 +261,9 @@ func (pb *PBServer) Put(args *PutArgs, reply *PutReply) error {
     if pb.broadcastFlush(seg.ID, group) {
       seg = pb.log.newSegment()
       seg.append(*putOp)
-      // pick some new backups
+      if pb.enlistReplicas(*seg) == false {
+        panic("could not enlist enough replicas")
+      }
     } else {
       panic("backup failure on flush")
     }
@@ -297,7 +314,6 @@ func (pb *PBServer) enlistReplicas(segment Segment) bool {
 
   hostsNeeded := RepLevel
   numHosts    := len(pb.hosts)
-  numEnlisted := 0
 
   availHosts := map[string]bool{}
   enlisted   := map[string]bool{}
@@ -313,7 +329,7 @@ func (pb *PBServer) enlistReplicas(segment Segment) bool {
   for {
 
     idxs       := rand.Perm(len(availHosts))
-    candidates := make([]string, numHosts - numEnlisted)
+    candidates := make([]string, numHosts - len(enlisted))
 
     // copy over available hosts
     i := 0
@@ -349,11 +365,11 @@ func (pb *PBServer) enlistReplicas(segment Segment) bool {
     for idx, ack := range acks {
       host := candidates[replicaIdxs[idx]-1]
       if ack == false {
-        // what the hell do we do here?
+        // TODO: what the hell do we do here?
       } else {
         reply := replies[idx]
         if (reply.Err != OK) {
-          // process error
+          fmt.Println(reply.Err)
         } else {
           hostsNeeded--
           enlisted[host] = true
@@ -363,6 +379,7 @@ func (pb *PBServer) enlistReplicas(segment Segment) bool {
     }
 
     if hostsNeeded != 0 {
+
       bg := new(BackupGroup)
       i := 0
       for k, _ := range enlisted {
@@ -370,6 +387,8 @@ func (pb *PBServer) enlistReplicas(segment Segment) bool {
         bg.Liveness[i] = true
         i++
       }
+      pb.backups[segment.ID] = *bg
+
       return true
     }
 
@@ -379,9 +398,7 @@ func (pb *PBServer) enlistReplicas(segment Segment) bool {
     }
 
   }
-
   return false
-
 }
 
 
@@ -399,8 +416,13 @@ func (pb *PBServer) EnlistReplica(args *EnlistReplicaArgs, reply *EnlistReplicaR
     segs[args.Segment.ID] = true
     pb.backedUpSegs[args.Origin] = segs
 
+    // set segment as buffer
+    pb.buffers[args.Origin] = &(args.Segment)
+
   } else {
+
     panic("replica already enlisted")
+
   }
 
   reply.Err = OK
@@ -427,6 +449,7 @@ func (pb *PBServer) FlushSeg(args *FlushSegArgs, reply *FlushSegReply) error {
     seg.burp(path.Join(dirpath, strconv.Itoa(int(seg.ID))))
   }()
 
+  // no longer need this segment... will this cause problems?
   delete(pb.buffers, args.Origin)
 
   reply.Err = OK
@@ -667,8 +690,6 @@ func (pb *PBServer) TestPullSegments(args *TestPullSegmentsArgs, reply *TestPull
 
 
 
-
-
 // tell the server to shut itself down.
 // please do not change this function.
 func (pb *PBServer) kill() {
@@ -771,6 +792,7 @@ type QuerySegmentsReply struct {
 
 }
 */
+
 // tell the viewserver which shards you have segments for and which segments you have
 func (pb *PBServer) QuerySegments(args *QuerySegmentsArgs, reply *QuerySegmentsReply) error {
 
@@ -780,8 +802,23 @@ func (pb *PBServer) QuerySegments(args *QuerySegmentsArgs, reply *QuerySegmentsR
 
 }
 
-
 // recover the shards in ShardsToSegmentsToServers
+/*
+type ElectRecoveryMasterArgs struct {
+
+	ShardsToSegmentsToServers map[int] (map[LogSegmentID] (map[string] bool))
+															--> map of shards to recover, corresponding segments to retrieve, and set of servers containing each of those segments
+
+}
+
+type ElectRecoveryMasterReply struct {
+
+}
+*/
+
+
+// you have been elected a recovery master
+// recover the shards in ShardsToSegmentsToServers using the information in that data structure
 func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *ElectRecoveryMasterReply) error {
 
 	reply.ServerName = pb.me
