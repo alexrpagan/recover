@@ -42,6 +42,7 @@ type PBServer struct {
   me string
 
   // TODO: reference to shardmaster
+  clerk viewservice.Clerk
   //Config shardmaster.Config
 
   log *Log
@@ -780,25 +781,131 @@ func (pb *PBServer) QuerySegments(args *QuerySegmentsArgs, reply *QuerySegmentsR
 }
 
 
-/*
-type ElectRecoveryMasterArgs struct {
-
-	ShardsToSegmentsToServers map[int] (map[LogSegmentID] (map[string] bool))
-															--> map of shards to recover, corresponding segments to retrieve, and set of servers containing each of those segments
-
-}
-
-type ElectRecoveryMasterReply struct {
-
-}
-*/
-// you have been elected a recovery master
-// recover the shards in ShardsToSegmentsToServers using the information in that data structure
+// recover the shards in ShardsToSegmentsToServers
 func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *ElectRecoveryMasterReply) error {
 
 	reply.ServerName = pb.me
 	
+	// while there are still shards to recover, assemble and execute queryPlans for segments
+	while len(args.ShardsToSegmentsToServers) > 0 {
+		
+		// map from backups to log segments
+		queryPlan := make(map[string] (map[int64] bool))
+		// map from log segments to shards
+		segmentShards := make(map[int64] int)
+		// map from shards to log segments
+		shardSegments := make(map[int] int64)
+		
+		// assemble a queryPlan for each of the backups
+		// record each shard-segment pair and assign the segment to the server with the smallest queryPlan so far
+		for shard, segmentsToServers := range args.ShardsToSegmentsToServers {
 	
+			for segment, servers := range segmentsToServers {
+		
+				segmentShards[segment] = shard
+				shardSegments[shard] = segment
+		
+				// find which server has the shortest query plan so far and assign to it this segment
+				min := -1
+				var minServer string
+		
+				for server, _ := range servers {
+			
+					if min < 0 || len(queryPlan[server]) < min {
+				
+						min = len(queryPlan[server])
+						minServer = server
+				
+					}
+			
+				}
+			
+				_, present := queryPlan[minServer]
+			
+				if !present {
+			
+					queryPlan[minServer] = make(map[int64] bool)
+			
+				}
+			
+				queryPlan[minServer][segment] = true
+				// remove servers from segments as they are tried so we won't retry a failed server
+				delete(args.ShardsToSegmentsToServers[shard][segment], minServer)
+		
+			}
+	
+		}
+	
+		// execute the queryPlan
+		var pullSegmentsRepliesFinishedLock sync.Mutex
+		pullSegmentsRepliesFinished := 0
+	
+		i := 0
+	
+		// pull the segments from each of the servers in the queryPlan
+		for server, segments := range queryPlan {
+	
+			segmentsToSend := make([]int64, len(segments))
+		
+			j := 0
+	
+			for segment, _ := range segments {
+		
+				segmentsToSend[i] = segment
+			
+				j++
+		
+			}
+		
+			go func(backupServer string) {
+		
+				pullSegmentsArgs := PullSegmentsArgs{Segments: segmentsToSend}
+				pullSegmentsReply := PullSegmentsReply{}
+				successful := call(server, "PBServer.PullSegments", pullSegmentsArgs, &pullSegmentsReply)
+			
+				pullSegmentsRepliesFinishedLock.Lock()
+			
+				if successful {
+			
+					for _, segment := range pullSegmentsReply.Segments {
+			
+						shard := segmentShards[segment.ID]
+						delete(segmentShards, segment.ID)
+						delete(shardSegments[shard], segment.ID)
+					
+						if len(shardSegments[shard]) <= 0 {
+					
+							successful = false
+						
+							while !successful {
+					
+								recoveryCompletedArgs := RecoveryCompletedArgs{ServerName: pb.me, ShardRecovered: shard}
+								recoveryCompletedReply := RecoveryCompletedReply{}
+								successful = call(pb.clerk.server, "ViewServer.RecoveryCompleted", recoveryCompletedArgs, &RecoveryCompletedReply)
+							
+							}
+						
+							delete(shardSegments, shard)
+					
+						}
+					
+					}
+			
+				}
+			
+				delete(queryPlan, backupServer)
+			
+				pullSegmentsRepliesFinished++
+			
+				pullSegmentsRepliesFinishedLock.Unlock()
+			
+			}(server)
+		
+			i++
+	
+		}
+		
+	}
 
 	return nil
 

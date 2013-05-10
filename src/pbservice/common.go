@@ -15,6 +15,8 @@ const (
   ErrBackupFailure = "ErrBackupFailure"
 
   ErrNotPending = "ErrNotPending"
+  
+  PULL_SEGMENTS_SLEEP_INTERVAL = time.Millisecond * 300
 
 )
 

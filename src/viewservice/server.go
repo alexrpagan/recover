@@ -456,13 +456,7 @@ func (vs *ViewServer) RecoveryCompleted(args *RecoveryCompletedArgs, reply *Reco
 	// under these circumstances, we have perfect consistency because only one primary is in charge of each shard until it dies
 	// when dead servers come back up, they can become log segment backups or primaries for future dead servers
 
-	// inject all of the reassigned shards into the view and increment vs.view.ViewNumber
-	for _, shard := range args.ShardsRecovered {
-	
-		vs.view.ShardsToPrimaries[shard] = args.ServerName
-	
-	}
-	
+	vs.view.ShardsToPrimaries[args.ShardRecovered] = args.ServerName
 	vs.view.ViewNumber++
 
 	return nil

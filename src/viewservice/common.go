@@ -63,6 +63,8 @@ type QuerySegmentsReply struct {
 type ElectRecoveryMasterArgs struct {
 
 	ShardsToSegmentsToServers map[int] (map[int64] (map[string] bool))
+	
+	
 
 }
 
@@ -74,7 +76,7 @@ type ElectRecoveryMasterReply struct {
 type RecoveryCompletedArgs struct {
 
 	ServerName string
-	ShardsRecovered []int
+	ShardRecovered int
 
 }
 
