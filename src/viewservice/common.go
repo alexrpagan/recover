@@ -9,7 +9,7 @@ const DEAD_PINGS = 5
 const REPLICATION_LEVEL = 3
 const CRITICAL_MASS = 8
 const NUMBER_OF_SHARDS = 100
-const QUERY_RANGES_SLEEP_INTERVAL = time.Millisecond * 300
+const QUERY_SEGMENTS_SLEEP_INTERVAL = time.Millisecond * 300
 
 
 type View struct {
@@ -23,13 +23,14 @@ type View struct {
 type PingArgs struct {
 
 	ServerName string
+	ViewNumber uint
 
 }
 
 type PingReply struct {
 
-	ViewNumber uint
-	ServersAlive []string				// array of servers primaries can choose as backups
+	View View
+	ServersAlive map[string] bool			// set of servers primaries can choose as backups
 
 }
 
@@ -54,14 +55,14 @@ type QuerySegmentsArgs struct {
 type QuerySegmentsReply struct {
 
 	ServerName string
-	ShardsToSegments map[int] LogSegmentID
+	ShardsToSegments map[int] (map[int64] bool)
 
 }
 
 
 type ElectRecoveryMasterArgs struct {
 
-	ShardsToSegmentsToServers map[int] (map[LogSegmentID] (map[string] bool))
+	ShardsToSegmentsToServers map[int] (map[int64] (map[string] bool))
 
 }
 

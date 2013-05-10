@@ -26,6 +26,7 @@ Unmodified Structures
 type Clerk struct {
   me string      // client's name (host:port)
   server string  // viewservice's host:port
+  view View
 }
 
 
@@ -40,6 +41,7 @@ func MakeClerk(me string, server string) *Clerk {
   ck := new(Clerk)
   ck.me = me
   ck.server = server
+  ck.view = View{}
   return ck
 }
 
@@ -77,8 +79,7 @@ Modified Code
 func (ck *Clerk) Ping(viewnum uint) (View, error) {
   // prepare the arguments.
   args := &PingArgs{}
-  args.Me = ck.me
-  args.Viewnum = viewnum
+  args.ServerName = ck.me
   var reply PingReply
 
   // send an RPC request, wait for the reply.
@@ -107,12 +108,3 @@ func (ck *Clerk) Get() (View, bool) {
 Utility Functions
 ********************
 */
-
-
-func (ck *Clerk) Primary() string {
-  v, ok := ck.Get()
-  if ok {
-    return v.Primary
-  }
-  return ""
-}
