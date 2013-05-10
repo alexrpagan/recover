@@ -804,44 +804,56 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 		for shard, segmentsToServers := range args.ShardsToSegmentsToServers {
 	
 			for segment, servers := range segmentsToServers {
+
+				// if all the backups for this segment have failed, just ignore it and move on
+				// for keys where this is not the final segment, they will not be affect
+				// for keys where this is the final segment among several, their values will revert to the last recoverable value
+				// for keys where this is the only segment, the data will be completely lost			
+				if len(servers) <= 0 {
+				
+					delete(args.ShardsToSegmentsToServers[shard], segment)
+				
+				// otherwise, we have backups and should proceed normally
+				} else {
 			
-				// keep track of which shards segments belong to
-				segmentShards[segment] = shard
+					// keep track of which shards segments belong to
+					segmentShards[segment] = shard
 		
-				// find which server has the shortest query plan so far and assign to it this segment
-				min := -1
-				var minServer string
+					// find which server has the shortest query plan so far and assign to it this segment
+					min := -1
+					var minServer string
 		
-				for server, _ := range servers {
+					for server, _ := range servers {
 				
-					if min < 0 || len(queryPlan[server]) < min {
+						if min < 0 || len(queryPlan[server]) < min {
 				
-						min = len(queryPlan[server])
-						minServer = server
+							min = len(queryPlan[server])
+							minServer = server
 				
+						}
+			
 					}
 			
+					_, present := queryPlan[minServer]
+			
+					if !present {
+			
+						queryPlan[minServer] = make(map[int64] bool)
+			
+					}
+			
+					queryPlan[minServer][segment] = true
+					// remove servers from segments as they are tried so we won't retry a server twice
+					// note: this doesn't remove the server for ALL segments, but that does happen in the goroutine below for failed servers
+					delete(args.ShardsToSegmentsToServers[shard][segment], minServer)
+					
 				}
-			
-				_, present := queryPlan[minServer]
-			
-				if !present {
-			
-					queryPlan[minServer] = make(map[int64] bool)
-			
-				}
-			
-				queryPlan[minServer][segment] = true
-				// remove servers from segments as they are tried so we won't retry a server twice
-				// note: this doesn't remove the server for ALL segments
-				// ->possible optimization: remove from ALL, but only AFTER server fails in goroutine below
-				delete(args.ShardsToSegmentsToServers[shard][segment], minServer)
 		
 			}
 	
 		}
 	
-		// 
+		// synchronize around the decision phases of the separate query threads
 		var queryLock sync.Mutex
 		// most recent recovered puts by key to allow replaying of more recent puts from recovered log segments
 		keysToPuts := make(map[string] PutOrder)
@@ -872,11 +884,11 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 				pullSegmentsReply := PullSegmentsReply{}
 				successful := call(server, "PBServer.PullSegments", pullSegmentsArgs, &pullSegmentsReply)
 			
+				// grab the queryLock around the entire decision phase
+				queryLock.Lock()
+			
 				// upon receiving a reply, iterate through the segments, replay most recent ones, and remove them from args.ShardsToSegmentsToSenders
 				if successful {
-				
-					// grab the queryLock around the entire decision phase
-					queryLock.Lock()
 			
 					for _, segment := range pullSegmentsReply.Segments {
 					
@@ -908,11 +920,24 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 						}
 					
 					}
-					
-					// release the queryLock
-					queryLock.Unlock()
 			
+				} else {
+				
+					// consider the server failed, remove it from all segments in args.ShardsToSegmentsToServers
+					for shard, segmentsToServers := range args.ShardsToSegmentsToServers {
+					
+						for segment, servers := range segmentsToServers {
+						
+							delete(args.ShardsToSegmentsToServers[shard][segment], backupServer)
+						
+						}
+					
+					}
+				
 				}
+				
+				// release the queryLock
+				queryLock.Unlock()
 
 				// report any completed shards to the viewservice
 				for completedShard, _ := range completedShards {
