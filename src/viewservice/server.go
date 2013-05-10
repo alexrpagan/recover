@@ -291,44 +291,41 @@ func (vs *ViewServer) tick() {
 	}
 	
 	// launch recovery for all dead primaries
-	for deadPrimary, _ := range deadServers {
-	
-		go vs.Recover(deadPrimary, shardsToRecover)
-	
-	}
+	go vs.Recover(deadServers, shardsToRecover)
 
 }
 
 
-// runs recovery for deadServer's shards
-func (vs *ViewServer) Recover(deadPrimary string, shardsToRecover map[int] bool) {
+// runs recovery for deadPrimaries and shardsToRecover
+func (vs *ViewServer) Recover(deadPrimaries string, shardsToRecover map[int] bool) {
 
-	// grab the vs lock
+	// grab the vs lock until all rpc's have been sent
 	vs.mu.Lock()
 	
 	// ask every live server which shards and segments they have
-	querySegmentsArgs := QuerySegmentsArgs{ShardsToRecover: shardsToRecover}
+	querySegmentsArgs := QuerySegmentsArgs{DeadPrimaries: deadPrimaries, ShardsToRecover: shardsToRecover}
+	// note that if recovery can't be fully satisfied by the live servers,
+	// it means all of the backups for at least 1 segment have failed, and there is nothing we can do
+	// ideadly, we would have a mechanism to retry servers that don't successfully respond to the query despite not having failed,
+	// but we're just assuming failure for now
+	// there is no point in checking if full recovery is satisfied because even if it isn't (due to failures), we can't satisfy it any more
+	// that is why we're just assuming len(vs.serversAlive) and keeping track of which ones were successful
 	querySegmentsReplies := make([]QuerySegmentsReply, len(vs.serversAlive))
-	// the earlier we stop using vs fields, the earlier we can release the lock
-
-	// release the vs lock
-	vs.mu.Unlock()
-
 	querySegmentsRepliesSuccessful := make([]bool, len(querySegmentsReplies))
 	
 	i := 0
-	querySegmentsRepliesFinished := 0
-	var querySegmentsRepliesFinishedLock sync.Mutex
+	queryRepliesFinished := 0
+	var queryLock sync.Mutex
 	
 	for server, _ := range vs.serversAlive {
 	
 		go func(j int) {
 		
-			querySegmentsRepliesFinishedLock.Lock()
-			defer querySegmentsRepliesFinishedLock.Unlock()
-		
-			querySegmentsRepliesSuccessful[j] = call(server, "PBService.QuerySegments", querySegmentsArgs, &querySegmentsReplies[j])
-			querySegmentsRepliesFinished++
+			queryRepliesSuccessful[j] = call(server, "PBService.QuerySegments", querySegmentsArgs, &querySegmentsReplies[j])
+			queryRepliesFinished++
+			
+			queryLock.Lock()
+			defer queryLock.Unlock()
 		
 		}(i)
 		
@@ -336,22 +333,25 @@ func (vs *ViewServer) Recover(deadPrimary string, shardsToRecover map[int] bool)
 	
 	}
 	
+	// release the vs lock
+	vs.mu.Unlock()
+	
 	// wait until all of the threads have returned
 	for {
 	
 		time.Sleep(QUERY_SEGMENTS_SLEEP_INTERVAL)
 		
-		querySegmentsRepliesFinishedLock.Lock()
+		queryLock.Lock()
 		
-		if querySegmentsRepliesFinished >= len(querySegmentsReplies) {
+		if queryRepliesFinished >= len(querySegmentsReplies) {
 		
-			querySegmentsRepliesFinishedLock.Unlock()
+			queryLock.Unlock()
 			
 			break
 		
 		}
 		
-		querySegmentsRepliesFinishedLock.Unlock()
+		queryLock.Unlock()
 	
 	}
 	

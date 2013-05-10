@@ -783,7 +783,7 @@ func (pb *PBServer) QuerySegments(args *QuerySegmentsArgs, reply *QuerySegmentsR
 
 	reply.ServerName = pb.me
 	
-	
+	for segment, _
 
 	return nil
 
@@ -906,7 +906,6 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 							// if !present || (segment.ID greater || (segment.ID equal but opIndex greater)), replay and update
 							if !present || (segment.ID > keysToPuts[op.Key].SegmentID || (segment.ID == keysToPuts[op.Key].SegmentID && opIndex > keysToPuts[op.key].OpIndex)) {
 								
-								
 								keysToPuts[op.Key] = PutOrder{SegmentID: segment.ID, OpIndex: opIndex}
 							
 							}
@@ -942,6 +941,7 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 				
 				}
 				
+				repliesFinished++
 				// release the queryLock
 				queryLock.Unlock()
 
