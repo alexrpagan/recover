@@ -782,6 +782,8 @@ func StartServer(me string) *PBServer {
 func (pb *PBServer) QuerySegments(args *QuerySegmentsArgs, reply *QuerySegmentsReply) error {
 
 	reply.ServerName = pb.me
+	
+	
 
 	return nil
 
@@ -793,12 +795,14 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 	reply.ServerName = pb.me
 	
 	// while there are still shards to recover, assemble and execute queryPlans for segments
-	while len(args.ShardsToSegmentsToServers) > 0 {
+	for len(args.ShardsToSegmentsToServers) > 0 {
 		
 		// map from backups to log segments for querying
 		queryPlan := make(map[string] (map[int64] bool))
 		// map from segments to shards to keep track of completed shards
 		segmentShards := make(map[int64] int)
+		// keep track of how many replies have finished so we can wait for one query to complete before beginning the next
+		repliesFinished := 0
 		
 		// assemble queryPlan by assigning segments to the server with the smallest queryPlan so far
 		for shard, segmentsToServers := range args.ShardsToSegmentsToServers {
@@ -833,9 +837,11 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 						}
 			
 					}
-			
+					
 					_, present := queryPlan[minServer]
-			
+					
+					// notice we only at the server to the queryPlan once we know it's part of the query
+					// we don't create a map prematurely both for simplicity and for knowledge of how many replies we're waiting for before making another query
 					if !present {
 			
 						queryPlan[minServer] = make(map[int64] bool)
@@ -852,7 +858,7 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 			}
 	
 		}
-	
+		
 		// synchronize around the decision phases of the separate query threads
 		var queryLock sync.Mutex
 		// most recent recovered puts by key to allow replaying of more recent puts from recovered log segments
@@ -944,7 +950,7 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 								
 					recoveryCompleted := false
 						
-					while !recoveryCompleted {
+					for !recoveryCompleted {
 					
 						recoveryCompletedArgs := RecoveryCompletedArgs{ServerName: pb.me, ShardRecovered: completedShard}
 						recoveryCompletedReply := RecoveryCompletedReply{}
@@ -955,6 +961,35 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 				}
 			
 			}(server, segmentsToRequest)
+	
+		}
+		
+		// should wait for the query to complete before issuing duplicate rpc's in a new query
+		// possible optimization: it would be nice if instead of thinking in terms of full queries,
+		// we could start asking for unretrieved segments without waiting
+		// we resorted to the full queryPlan model because we originally sent an rpc for each individual segment
+		// this obviously created a ridiculous amount of rpc's to each server
+		// some compromise of the two ideas would be best
+		// for example, do 1 iteration of a full queryPlan, and as segments fail retrieval, they are then sent for individually,
+		// or batched with some timing mechanism
+		// the optimization of this scheme could get pretty elaborate, so for now we are happy with the iterative queryPlan idea
+		// furthermore, there is actually no difference between these ideas if no servers fail during the first query execution,
+		// which our failure model assumes is highly likely
+		for {
+	
+			time.Sleep(PULL_SEGMENTS_SLEEP_INTERVAL)
+		
+			repliesFinishedLock.Lock()
+		
+			if repliesFinished >= len(queryPlan) {
+		
+				repliesFinishedLock.Unlock()
+			
+				break
+		
+			}
+		
+			repliesFinishedLock.Unlock()
 	
 		}
 		
