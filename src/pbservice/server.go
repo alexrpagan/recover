@@ -782,12 +782,11 @@ func StartServer(me string) *PBServer {
 func (pb *PBServer) QuerySegments(args *QuerySegmentsArgs, reply *QuerySegmentsReply) error {
 
 	reply.ServerName = pb.me
-	
-	for segment, _
 
 	return nil
 
 }
+
 
 // recover the shards in args.ShardsToSegmentsToServers
 func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *ElectRecoveryMasterReply) error {
@@ -863,6 +862,8 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 		var queryLock sync.Mutex
 		// most recent recovered puts by key to allow replaying of more recent puts from recovered log segments
 		keysToPuts := make(map[string] PutOrder)
+		// keep track of segments which have been recovered so we don't repeat iterating through them for future shards which share them
+		recoveredSegments := make(map[int64] bool)
 		
 		// execute the queryPlan by pulling the segments from each of the servers
 		for server, segments := range queryPlan {
@@ -898,17 +899,25 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 			
 					for _, segment := range pullSegmentsReply.Segments {
 					
-						// replay put operations if they are more recent than other recovered puts for the same key
-						for opIndex, op := range segment.Ops {
+						// check for segments in recoveredSegments
+						if !recoveredSegments[segment.ID] {
 						
-							_, present := keysToPuts[op.Key]
+							// replay put operations if they are more recent than other recovered puts for the same key
+							for opIndex, op := range segment.Ops {
+						
+								_, present := keysToPuts[op.Key]
 							
-							// if !present || (segment.ID greater || (segment.ID equal but opIndex greater)), replay and update
-							if !present || (segment.ID > keysToPuts[op.Key].SegmentID || (segment.ID == keysToPuts[op.Key].SegmentID && opIndex > keysToPuts[op.key].OpIndex)) {
+								// if !present || (segment.ID greater || (segment.ID equal but opIndex greater)), replay and update
+								if !present || (segment.ID > keysToPuts[op.Key].SegmentID || (segment.ID == keysToPuts[op.Key].SegmentID && opIndex > keysToPuts[op.key].OpIndex)) {
 								
-								keysToPuts[op.Key] = PutOrder{SegmentID: segment.ID, OpIndex: opIndex}
+									keysToPuts[op.Key] = PutOrder{SegmentID: segment.ID, OpIndex: opIndex}
+							
+								}
 							
 							}
+
+							// mark the segment as recovered so we won't iterate through it again for future shards							
+							recoveredSegments[segment.ID] = true
 							
 						}
 						
