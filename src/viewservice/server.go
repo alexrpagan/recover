@@ -299,42 +299,98 @@ func (vs *ViewServer) tick() {
 // runs recovery for deadPrimaries and shardsToRecover
 func (vs *ViewServer) Recover(deadPrimaries string, shardsToRecover map[int] bool) {
 
-	// grab the vs lock until all rpc's have been sent
+	// grab the vs lock until vs.serversAlive has been copied into a slice
 	vs.mu.Lock()
 	
-	// ask every live server which shards and segments they have
-	querySegmentsArgs := QuerySegmentsArgs{DeadPrimaries: deadPrimaries, ShardsToRecover: shardsToRecover}
-	// note that if recovery can't be fully satisfied by the live servers,
-	// it means all of the backups for at least 1 segment have failed, and there is nothing we can do
-	// ideadly, we would have a mechanism to retry servers that don't successfully respond to the query despite not having failed,
-	// but we're just assuming failure for now
-	// there is no point in checking if full recovery is satisfied because even if it isn't (due to failures), we can't satisfy it any more
-	// that is why we're just assuming len(vs.serversAlive) and keeping track of which ones were successful
-	querySegmentsReplies := make([]QuerySegmentsReply, len(vs.serversAlive))
-	querySegmentsRepliesSuccessful := make([]bool, len(querySegmentsReplies))
+	// convert vs.serversAlive to a slice in order to index into it
+	serversAliveSlice := make([]string, len(vs.serversAlive))
 	
 	i := 0
-	queryRepliesFinished := 0
-	var queryLock sync.Mutex
 	
-	for server, _ := range vs.serversAlive {
+	for serverAlive, _ := range vs.serversAlive {
 	
-		go func(j int) {
-		
-			queryRepliesSuccessful[j] = call(server, "PBService.QuerySegments", querySegmentsArgs, &querySegmentsReplies[j])
-			queryRepliesFinished++
-			
-			queryLock.Lock()
-			defer queryLock.Unlock()
-		
-		}(i)
-		
-		i++
+		serversAliveSlice[i] = serverAlive
 	
 	}
 	
 	// release the vs lock
 	vs.mu.Unlock()
+	
+	// ask every live server which shards and segments they have
+	// note that if recovery can't be fully satisfied by the live servers,
+	// it means all of the backups for at least 1 segment have failed, and there is nothing we can do
+	// there is no point in checking if full recovery is satisfied because even if it isn't (due to failures), we can't satisfy it any more
+	querySegmentsArgs := QuerySegmentsArgs{DeadPrimaries: deadPrimaries, ShardsToRecover: shardsToRecover}
+	// elect recovery masters in serversToShards
+	serversToShards := make(map[string] (map[int] bool))
+	// keep track of which segments are owned by which servers for each shard
+	shardsToSegmentsToBackups := make(map[int] (map[int64] (map[string] bool)))
+	
+	for shard, _ := range shardsToRecover {
+	
+		shardsToSegmentsToServers[shard] = make(map[int64] (map[string] bool))
+	
+	}
+	
+	// synchronize around the decision phases of the separate query threads
+	var queryLock sync.Mutex
+	// keep track of how many replies have finished so we can wait after
+	queryRepliesFinished := 0
+	// keep track of how many shards have been reported so we can assign recovery masters
+	shardsSeen := 0
+	
+	for server, _ := range vs.serversAlive {
+	
+		go func() {
+		
+			querySegmentsReply := QuerySegmentsReply{}
+			successful := call(server, "PBService.QuerySegments", querySegmentsArgs, &querySegmentsReply)
+			
+			queryLock.Lock()
+			defer queryLock.Unlock()
+			
+			if successful {
+			
+				// for each successful reply, iterate through ShardsToSegments and populate shardsToSegmentsToServers
+				for shard, segments := range querySegmentsReply.ShardsToSegments {
+				
+					// elect a recoveryMaster to recover the shard
+					_, present := serversToShards[serversAliveSlice[shardsSeen % len(serversAliveSlice)]]
+		
+					if !present {
+		
+						serversToShards[serversAliveSlice[shardsSeen % len(serversAliveSlice)]] = make(map[int] bool)
+		
+					}
+		
+					serversToShards[serversAliveSlice[shardsSeen % len(serversAliveSlice)]][shard] = true
+					
+					// increment shardsSeen for the next shard to be assigned to the next recoveryMaster
+					shardsSeen++
+				
+					for segment, _ := range segments {
+				
+						_, present = shardsToSegmentsToServers[shard][segment]
+			
+						if !present {
+				
+							shardsToSegmentsToServers[shard][segment] = make(map[string] bool)
+				
+						}
+				
+						shardsToSegmentsToServers[shard][segment][querySegmentsReply.ServerName] = true
+				
+					}
+				
+				}
+			
+			}
+			
+			queryRepliesFinished++
+		
+		}()
+	
+	}
 	
 	// wait until all of the threads have returned
 	for {
@@ -355,82 +411,16 @@ func (vs *ViewServer) Recover(deadPrimaries string, shardsToRecover map[int] boo
 	
 	}
 	
-	// keep track of which segments are owned by which servers for each shard
-	shardsToSegmentsToServers := make(map[int] (map[int64] (map[string] bool)))
+	// send shardsToSegmentsToServers to each of the recovery masters in serversToShards
+	for recoveryMaster, recoveryShards := range serversToShards {
 	
-	for shard, _ := range shardsToRecover {
+		recoveryData := make(map[int] (map[int64] (map[string] bool)))
 	
-		shardsToSegmentsToServers[shard] = make(map[int64] (map[string] bool))
-	
-	}
-	
-	// for each successful reply, iterate through ShardsToSegments and populate shardsToSegmentsToServers
-	for i = 0; i < len(querySegmentsReplies); i++ {
-	
-		if querySegmentsRepliesSuccessful[i] {
+		for recoveryShard, _ := range recoveryShards {
 		
-			for shard, segments := range querySegmentsReplies[i].ShardsToSegments {
-			
-				for segmentID, _ := range segments {
-				
-					_, present := shardsToSegmentsToServers[shard][segmentID]
-			
-					if !present {
-				
-						shardsToSegmentsToServers[shard][segmentID] = make(map[string] bool)
-				
-					}
-				
-					shardsToSegmentsToServers[shard][segmentID][querySegmentsReplies[i].ServerName] = true
-				
-				}
-			
-			}
+			recoveryData[recoveryShard] = shardsToSegmentsToServers[recoveryShard]
 		
 		}
-	
-	}
-	
-	// grab the vs lock
-	vs.mu.Lock()
-	
-	// convert vs.serversAlive to a slice in order to index into it
-	serversAliveSlice := make([]string, len(vs.serversAlive))
-	
-	i = 0
-	
-	for serverAlive, _ := range vs.serversAlive {
-	
-		serversAliveSlice[i] = serverAlive
-	
-	}
-	
-	// release the vs lock
-	vs.mu.Unlock()
-	
-	// elect recovery masters in serversToShardsToSegmentsToServers
-	serversToShardsToSegmentsToServers := make(map[string] (map[int] (map[int64] (map[string] bool))))
-	
-	c := 0
-	
-	for shard, segmentsToServers := range shardsToSegmentsToServers {
-	
-		_, present := serversToShardsToSegmentsToServers[serversAliveSlice[c % len(serversAliveSlice)]]
-		
-		if !present {
-		
-			serversToShardsToSegmentsToServers[serversAliveSlice[c % len(serversAliveSlice)]] = make(map[int] (map[int64] (map[string] bool)))
-		
-		}
-		
-		serversToShardsToSegmentsToServers[serversAliveSlice[c % len(serversAliveSlice)]][shard] = segmentsToServers
-		
-		c++
-	
-	}
-	
-	// send shardsToSegmentsToServers to each of the recovery masters in serversToShardsToSegmentsToServers
-	for recoveryMaster, recoveryData := range serversToShardsToSegmentsToServers {
 	
 		electRecoveryMasterArgs := ElectRecoveryMasterArgs{ShardsToSegmentsToServers: recoveryData}
 		electRecoveryMasterReply := ElectRecoveryMasterReply{}
