@@ -22,20 +22,14 @@ const SrvPort = 5001
 
 type Err string
 
-// > 0
-type SegmentID int64
-type ClientID int64
-type RequestID int64
-type VersionID int64
-type ServerID string
 
 // Put
 
 type PutArgs struct {
   Key string
   Value string
-  Client ClientID
-  Request RequestID
+  Client int64
+  Request int64
 }
 
 type PutReply struct {
@@ -46,21 +40,22 @@ type PutReply struct {
 
 type GetArgs struct {
   Key string
-  Client ClientID
-  Request RequestID
+  Client int64
+  Request int64
 }
 
 type GetReply struct {
-
+  Err Err
+  Value string
 }
 
 
 // Forward Op
 
 type ForwardOpArgs struct {
-  Origin ServerID
+  Origin string
   Op Op
-  Segment SegmentID
+  Segment int64
 }
 
 type ForwardOpReply struct {
@@ -69,8 +64,8 @@ type ForwardOpReply struct {
 
 
 type FlushSegArgs struct {
-  Origin ServerID
-  OldSegment SegmentID
+  Origin string
+  OldSegment int64
 }
 
 type FlushSegReply struct {
@@ -80,17 +75,19 @@ type FlushSegReply struct {
 // EnlistReplica
 
 type EnlistReplicaArgs struct {
-  Origin ServerID
+  Origin string
   Segment Segment
 }
 
-type EnlistReplicaReply struct {}
+type EnlistReplicaReply struct {
+  Err Err
+}
 
 
 // PullSegments
 
 type PullSegmentsArgs struct {
-  Segments []SegmentID
+  Segments []int64
 }
 
 type PullSegmentsReply struct {

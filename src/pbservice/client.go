@@ -8,37 +8,37 @@ Package and Imports
 package pbservice
 
 
-import "viewservice"
+//import "viewservice"
 import "net/rpc"
-import "time"
+import "fmt"
+//import "time"
 
 
-/*
-*********************
-Unmodified Structures
-*********************
-*/
+// /*
+// *********************
+// Unmodified Structures
+// *********************
+// */
+
+// // clerk for the pbservice which encapsulates a viewservice clerk
+// type Clerk struct {
+// 	vs *viewservice.Clerk
+// }
 
 
-// clerk for the pbservice which encapsulates a viewservice clerk
-type Clerk struct {
-	vs *viewservice.Clerk
-}
+// /*
+// *********************
+// Unmodified Code
+// *********************
+// */
 
 
-/*
-*********************
-Unmodified Code
-*********************
-*/
-
-
-// makes a new clerk for the pbservice which encapsulates a viewservice clerk
-func MakeClerk(vshost string, me string) *Clerk {
-  ck := new(Clerk)
-  ck.vs = viewservice.MakeClerk(me, vshost)
-  return ck
-}
+// // makes a new clerk for the pbservice which encapsulates a viewservice clerk
+// func MakeClerk(vshost string, me string) *Clerk {
+//   ck := new(Clerk)
+//   ck.vs = viewservice.MakeClerk(me, vshost)
+//   return ck
+// }
 
 
 // sends an RPC
@@ -59,97 +59,98 @@ func call(srv string, rpcname string,
 }
 
 
-/*
-*********************
-Modified Structures
-*********************
-*/
+// /*
+// *********************
+// Modified Structures
+// *********************
+// */
 
 
-/*
-*********************
-Modified Code
-*********************
-*/
+// /*
+// *********************
+// Modified Code
+// *********************
+// */
 
 
-// get a value for the key from the pbservice
-func (ck *Clerk) Get(key string) string {
-  // what if no view has been chosen by the time this has been called?
-  if ck.viewIsInvalid() {
-    ck.updateView()
-  }
+// // get a value for the key from the pbservice
+// func (ck *Clerk) Get(key string) string {
+//   // what if no view has been chosen by the time this has been called?
+//   if ck.viewIsInvalid() {
+//     ck.updateView()
+//   }
 
-  args := GetArgs{}
-  args.Key = key
-  var reply GetReply
+//   args := GetArgs{}
+//   args.Key = key
+//   var reply GetReply
 
-	// retry Get until succesful, updating view each attempt
-  for {
-    ok := call(ck.view.Primary, "PBServer.Get", args, &reply)
-    if ok == false {
-      ck.updateView()
-      time.Sleep(viewservice.PingInterval)
-    } else {
-      break
-    }
-  }
-  if reply.Err == ErrNoKey {
-    return "errnokey"
-  }
+// 	// retry Get until succesful, updating view each attempt
+//   for {
+//     ok := call(ck.view.Primary, "PBServer.Get", args, &reply)
+//     if ok == false {
+//       ck.updateView()
+//       time.Sleep(viewservice.PingInterval)
+//     } else {
+//       break
+//     }
+//   }
+//   if reply.Err == ErrNoKey {
+//     return "errnokey"
+//   }
 
-  return reply.Value
-}
-
-
-// put a value for the key from the pbservice
-func (ck *Clerk) Put(key string, value string) {
-  if ck.viewIsInvalid() {
-    ck.updateView()
-  }
-
-  args := PutArgs{}
-  args.Key = key
-  args.Value = value
-  var reply PutReply
-
-  for {
-    ok := call(ck.view.Primary, "PBServer.Put", args, &reply)
-    if ok == false {
-      ck.updateView()
-      time.Sleep(viewservice.PingInterval)
-    } else {
-      break
-    }
-  }
-
-}
+//   return reply.Value
+// }
 
 
-/*
-********************
-Utility Functions
-********************
-*/
+// // put a value for the key from the pbservice
+// func (ck *Clerk) Put(key string, value string) {
+//   if ck.viewIsInvalid() {
+//     ck.updateView()
+//   }
+
+//   args := PutArgs{}
+//   args.Key = key
+//   args.Value = value
+//   var reply PutReply
+
+//   for {
+//     ok := call(ck.view.Primary, "PBServer.Put", args, &reply)
+//     if ok == false {
+//       ck.updateView()
+//       time.Sleep(viewservice.PingInterval)
+//     } else {
+//       break
+//     }
+//   }
+
+// }
 
 
-// test if a clerk's view is invalid
-func (ck *Clerk) viewIsInvalid() bool {
-  return ck.view.Viewnum == 0
-}
+// /*
+// ********************
+// Utility Functions
+// ********************
+// */
 
 
-// update the clerk's view
-func (ck *Clerk) updateView() {
-  currview, _ := ck.vs.Get()
-  ck.view = currview
-}
+// // test if a clerk's view is invalid
+// func (ck *Clerk) viewIsInvalid() bool {
+//   return ck.view.Viewnum == 0
+// }
+
+
+// // update the clerk's view
+// func (ck *Clerk) updateView() {
+//   currview, _ := ck.vs.Get()
+//   ck.view = currview
+// }
+
 
 func key2shard(key string) int {
   shard := 0
   if len(key) > 0 {
     shard = int(key[0])
   }
-  shard %= shardmaster.NShards
+  shard %= 100
   return shard
 }

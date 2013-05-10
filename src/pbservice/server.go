@@ -50,27 +50,27 @@ type PBServer struct {
   store map[string]*Op
 
   // backup buffers: map each server to a Segment.
-  buffers map[ServerID]*Segment
+  buffers map[string]*Segment
 
   // which segs am I responsible for?
-  backedUpSegs map[ServerID]map[SegmentID]bool
+  backedUpSegs map[string]map[int64]bool
 
   // primary's backup map
-  backups map[SegmentID]BackupGroup
+  backups map[int64]BackupGroup
 
   // have we seen these puts?
   request map[Request]bool
 
   // shim of live hosts
-  hosts []ServerID
+  hosts []string
 
 }
 
 // REQUEST
 
 type Request struct {
-  Client ClientID
-  Request RequestID
+  Client int64
+  Request int64
 }
 
 
@@ -78,8 +78,8 @@ type Request struct {
 
 type Op struct {
 //  Version VersionID
-  Client ClientID
-  Request RequestID
+  Client int64
+  Request int64
   Type int // {GetOp, PutOp}
   Key string
   Value string
@@ -99,9 +99,9 @@ func (op Op) Equals (diffOp Op) bool {
 // LOG
 
 type Log struct {
-  // TODO: only need to use a map if the segmentIDs are non-sequential, right?
-  Segments map[SegmentID]*Segment
-  CurrSegID SegmentID
+  // TODO: only need to use a map if the int64s are non-sequential, right?
+  Segments map[int64]*Segment
+  CurrSegID int64
 }
 
 func (l *Log) getCurrSegment() (seg *Segment, ok bool) {
@@ -125,10 +125,10 @@ func (l *Log) newSegment() *Segment {
 // LOG SEGMENTS
 
 type Segment struct {
-  ID SegmentID
+  ID int64
   Active bool
   Size int  //in bytes
-  Digest []SegmentID  //the ids of all preceding segments in log
+  Digest []int64  //the ids of all preceding segments in log
   Ops []Op
 }
 
@@ -167,7 +167,8 @@ func (s *Segment) slurp (fromFile string) {
 
 // BACKUP GROUP INFO
 type BackupGroup struct {
-  Backups [RepLevel]string
+  Backups  [RepLevel]string
+  Liveness [RepLevel]bool
 }
 
 
@@ -176,7 +177,7 @@ func (pb *PBServer) PullSegments(args *PullSegmentsArgs, reply *PullSegmentsRepl
   var wg sync.WaitGroup
   for i, segId := range args.Segments {
     wg.Add(1)
-    go func(i int, segId SegmentID) {
+    go func(i int, segId int64) {
       segment := Segment{}
       fname := strconv.Itoa(int(segId))
       segment.slurp(path.Join(SegPath, fname))
@@ -194,7 +195,7 @@ func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
   pb.mu.Lock()
   defer pb.mu.Unlock()
 
-  shard := key2Shard(op.Key)
+  shard := key2shard(args.Key)
   // CHECK: am I the primary for this key
   if shard > 0 && false {
     reply.Err = ErrWrongServer
@@ -217,37 +218,40 @@ func (pb *PBServer) Put(args *PutArgs, reply *PutReply) error {
   pb.mu.Lock()
   defer pb.mu.Unlock()
 
-  shard := key2Shard(op.Key)
+  seg, _ := pb.log.getCurrSegment()
+  group, ok := pb.backups[seg.ID]
+
+  if ! ok {
+    // pick some new replicas
+  }
+
+  // create operation
+  putOp := new(Op)
+  putOp.Client = args.Client
+  putOp.Request = args.Request
+  putOp.Type = PutOp
+  putOp.Key = args.Key
+  putOp.Value = args.Value
+
+  shard := key2shard(putOp.Key)
   // CHECK: am I the primary for this key
   if shard > 0 && false {
     reply.Err = ErrWrongServer
     return nil
   }
 
-  group, ok := pb.backups[seg.ID]
-
-  // create operation
-  putOp := new(Op)
-  putOp.ClientID = args.ClientID
-  putOp.RequestID = args.RequestID
-  putOp.Type = PutOp
-  putOp.Key = args.Key
-  putOp.value = args.Value
-
-  seg, _ := pb.log.getCurrSegment()
-
-  if seg.append(putOp) == false {
+  if seg.append(*putOp) == false {
     delete(pb.backups, seg.ID)
     if pb.broadcastFlush(seg.ID, group) {
-      seg = l.newSegment()
-      seg.append(putOp)
+      seg = pb.log.newSegment()
+      seg.append(*putOp)
       // pick some new backups
     } else {
       panic("backup failure on flush")
     }
   }
 
-  if pb.broadcastForward(*putOp, group) {
+  if pb.broadcastForward(*putOp, seg.ID, group) {
     pb.store[args.Key] = putOp
   } else {
     panic("backup failure on fwd")
@@ -258,19 +262,18 @@ func (pb *PBServer) Put(args *PutArgs, reply *PutReply) error {
 
 }
 
-func (pb *PBServer) checkPrimary(server ServerID, segment SegmentID, key string) Err {
+func (pb *PBServer) checkPrimary(server string, segment int64, key string) Err {
 
   if key != "" {
-    shard := key2Shard(op.Key)
+    shard := key2shard(key)
     if shard > 0 && false {
       return ErrNotPrimary
     }
   }
 
-  if segment != SegmentID(0) {
+  if segment != int64(0) {
     segs, _ := pb.backedUpSegs[server]
     resp, _ := segs[segment]
-
     if resp == false {
       return ErrNotResponsible
     }
@@ -279,14 +282,15 @@ func (pb *PBServer) checkPrimary(server ServerID, segment SegmentID, key string)
   return OK
 }
 
-// func (pb *PBServer) getReplicatedSegments(failedBackup ServerID) ([]SegmentID, []BackupGroup) {
+// func (pb *PBServer) getReplicatedSegments(failedBackup string) ([]int64, []BackupGroup) {
 //   // search through backups and return replication groups of which this server was member
 // }
 
 
 //TODO: fixme
 
-func (pb *PBServer) enlistReplicas() bool {
+
+func (pb *PBServer) enlistReplicas(segment Segment) bool {
 
   port := strconv.Itoa(SrvPort)
 
@@ -294,20 +298,23 @@ func (pb *PBServer) enlistReplicas() bool {
   numHosts    := len(pb.hosts)
   numEnlisted := 0
 
-  availHosts := map[ServerID]bool{}
-  enlisted   := map[ServerID]bool{}
+  availHosts := map[string]bool{}
+  enlisted   := map[string]bool{}
 
   for i := 0; i < numHosts; i++ {
     availHosts[pb.hosts[i]] = true
   }
 
   enlistArgs := new(EnlistReplicaArgs)
+  enlistArgs.Origin = pb.me
+  enlistArgs.Segment = segment
 
   for {
 
     idxs       := rand.Perm(len(availHosts))
-    candidates := make([]ServerID, numHosts - numEnlisted)
+    candidates := make([]string, numHosts - numEnlisted)
 
+    // copy over available hosts
     i := 0
     for key, _ := range availHosts {
       candidates[i] = key
@@ -316,59 +323,52 @@ func (pb *PBServer) enlistReplicas() bool {
 
     replicaIdxs := idxs[:hostsNeeded]
 
-    replychan := make(chan data)
-    ackchan   := make(chan data)
-
+    var wg sync.WaitGroup
     replies   := make([]*EnlistReplicaReply, hostsNeeded)
     acks      := make([]bool, hostsNeeded)
 
     to := 10 * time.Millisecond
-    count := 0
 
     // for each guy who hasn't acked
     for i := 0 ; i < hostsNeeded; i++ {
-
       host := candidates[replicaIdxs[i]-1]
-
-      if (acks[idx] == false) {
-        count += 1
-        go func(replychan chan, ackchan chan, idx int, ServerID backup) {
-          enlistReply := make(EnlistReplicaReply)
-          enlistAck   := call(backup + ":" + port, 'PBServer.EnlistReplica', enlistArgs, enlistReplica)
-          replychan <- data{idx, enlistReply}
-          ackchan   <- data{idx, enlistAck}
-        }(replychan, ackchan, idx, host)
+      if (acks[i] == false) {
+        wg.Add(1)
+        go func(i int, backup string) {
+          enlistReply := new(EnlistReplicaReply)
+          enlistAck   := call(backup + ":" + port, "PBServer.EnlistReplica", enlistArgs, enlistReply)
+          replies[i] = enlistReply
+          acks[i]    = enlistAck
+          wg.Done()
+        }(i, host)
       }
-
     }
-
-    for i:= 0; i < count; i++ {
-      reply := <- replychan
-      replies[reply.i] = reply.val
-      ack := <- ackchan
-      acks[ack.i] = ack.val
-    }
+    wg.Wait()
 
     for idx, ack := range acks {
-
       host := candidates[replicaIdxs[idx]-1]
-
       if ack == false {
-
+        // what the hell do we do here?
       } else {
         reply := replies[idx]
-        if (reply.Err) {
-
+        if (reply.Err != OK) {
+          // process error
         } else {
-          enlisted
+          hostsNeeded--
+          enlisted[host] = true
         }
+        delete(availHosts, host)
       }
-
-      delete(availHosts, host)
-
     }
 
     if hostsNeeded != 0 {
+      bg := new(BackupGroup)
+      i := 0
+      for k, _ := range enlisted {
+        bg.Backups[i]  = k
+        bg.Liveness[i] = true
+        i++
+      }
       return true
     }
 
@@ -379,7 +379,8 @@ func (pb *PBServer) enlistReplicas() bool {
 
   }
 
-  // select subset of live hosts
+  return false
+
 }
 
 
@@ -389,12 +390,14 @@ func (pb *PBServer) EnlistReplica(args *EnlistReplicaArgs, reply *EnlistReplicaR
 
   segs, ok := pb.backedUpSegs[args.Origin]
   if ! ok {
-    segs = map[SegmentID]bool{}
+    segs = map[int64]bool{}
   }
 
-  if segs[args.SegmentID] == false {
-    segs[args.SegmentID] = true
+  if segs[args.Segment.ID] == false {
+
+    segs[args.Segment.ID] = true
     pb.backedUpSegs[args.Origin] = segs
+
   } else {
     panic("replica already enlisted")
   }
@@ -418,9 +421,9 @@ func (pb *PBServer) FlushSeg(args *FlushSegArgs, reply *FlushSegReply) error {
 
   // write segment to disk in the background
   go func() {
-    dirpath := path.Join(SegPath, ServerID)
+    dirpath := path.Join(SegPath, args.Origin)
     os.Mkdir(dirpath, 0777)
-    seg.burp(path.Join(dirpath, strconv.Itoa(seg.ID)))
+    seg.burp(path.Join(dirpath, strconv.Itoa(int(seg.ID))))
   }()
 
   delete(pb.buffers, args.Origin)
@@ -451,19 +454,19 @@ func (pb *PBServer) ForwardOp(args *ForwardOpArgs, reply *ForwardOpReply) error 
 }
 
 
-func (pb *PBServer) broadcastForward(op Op, segment SegmentID, group BackupGroup) bool {
+func (pb *PBServer) broadcastForward(op Op, segment int64, group BackupGroup) bool {
 
   port := strconv.Itoa(SrvPort)
 
-  // setup
-  replychan := make(chan data)
-  ackchan   := make(chan data)
+  numOfBackups := len(group.Backups)
 
-  replies := make([]*ForwardOpReply, len(group))
-  acks    := make([]bool, len(group))
+  replies := make([]*ForwardOpReply, numOfBackups)
+  acks    := make([]bool, numOfBackups)
+
+  var wg sync.WaitGroup
 
   // set the args
-  fwdArgs  := make(ForwardOpArgs)
+  fwdArgs  := new(ForwardOpArgs)
   fwdArgs.Origin = pb.me
   fwdArgs.Op = op
   fwdArgs.Segment = segment
@@ -471,39 +474,31 @@ func (pb *PBServer) broadcastForward(op Op, segment SegmentID, group BackupGroup
   for i:= 0; i < Retries; i++ {
 
     to := 10 * time.Millisecond
-    count := 0
 
     // for each guy who hasn't acked
-    for idx, backup := range group {
+    for idx, backup := range group.Backups {
       if (acks[idx] == false ) {
-        count += 1
-        go func(replychan chan, ackchan chan, idx int, ServerID backup) {
-          fwdReply := make(ForwardOpReply)
-          ack := call(backup + ":" + port, 'PBServer.ForwardOp', fwdArgs, fwdReply)
-          replychan <- data{idx, fwdReply}
-          ackchan   <- data{idx, fwdAck}
-        }(replychan, ackchan, idx, backup)
+        wg.Add(1)
+        go func(idx int, backup string) {
+          fwdReply := new(ForwardOpReply)
+          ack := call(backup + ":" + port, "PBServer.ForwardOp", fwdArgs, fwdReply)
+          replies[idx] = fwdReply
+          acks[idx]    = ack
+          wg.Done()
+        }(idx, backup)
       }
     }
-
-    // collect up responses and acks
-    for i:= 0; i < count; i++ {
-      reply := <- replychan
-      replies[reply.i] = reply.val
-
-      ack := <- ackchan
-      acks[ack.i] = ack.val
-    }
+    wg.Wait()
 
     numAcked := 0
 
     // process the responses.
     for idx, ack := range acks {
       if ack == false {
-
+        // TODO: what the hell do we do here?
       } else {
         reply := replies[idx]
-        if (reply.Err) {
+        if (reply.Err != OK) {
           return false
         } else {
           numAcked += 1
@@ -511,7 +506,7 @@ func (pb *PBServer) broadcastForward(op Op, segment SegmentID, group BackupGroup
       }
     }
 
-    if numAcked == len(group) {
+    if numAcked == len(group.Backups) {
       return true
     }
 
@@ -519,6 +514,7 @@ func (pb *PBServer) broadcastForward(op Op, segment SegmentID, group BackupGroup
     if to < 10 * time.Second {
       to *= 2
     }
+
   }
 
   //wasnt able to ack everyone
@@ -526,21 +522,17 @@ func (pb *PBServer) broadcastForward(op Op, segment SegmentID, group BackupGroup
 }
 
 
-func (pb *PBServer) broadcastFlush(segment SegmentID, group BackupGroup) bool {
+func (pb *PBServer) broadcastFlush(segment int64, group BackupGroup) bool {
 
   port := strconv.Itoa(SrvPort)
 
-  // setup
-  replychan := make(chan data)
-  ackchan   := make(chan data)
-
-  replies := make([]*FlushSegReply, len(group))
-  acks    := make([]bool, len(group))
+  replies := make([]*FlushSegReply, len(group.Backups))
+  acks    := make([]bool, len(group.Backups))
 
   // set the args
-  flshArgs  := make(ForwardOpArgs)
+  flshArgs  := new(FlushSegArgs)
   flshArgs.Origin = pb.me
-  flshArgs.Op = op
+  flshArgs.OldSegment = segment
 
   for i:= 0; i < Retries; i++ {
 
@@ -548,27 +540,16 @@ func (pb *PBServer) broadcastFlush(segment SegmentID, group BackupGroup) bool {
     count := 0
 
     // for each guy who hasn't acked
-    for idx, backup := range group {
+    for idx, backup := range group.Backups {
       if (acks[idx] == false ) {
         count += 1
-        go func(replychan chan, ackchan chan, idx int, ServerID backup) {
+        go func(idx int, backup string) {
           flshReply := new(FlushSegReply)
-          ack := call(backup + ":" + port, 'PBServer.FlushSeg', flshArgs, flshReply)
-          replychan <- data{idx, flshReply}
-          ackchan   <- data{idx, flshAck}
-        }(replychan, ackchan, idx, backup)
+          ack := call(backup + ":" + port, "PBServer.FlushSeg", flshArgs, flshReply)
+          replies[idx] = flshReply
+          acks[idx] = ack
+        }(idx, backup)
       }
-    }
-
-    // collect up responses and acks
-    for i:= 0; i < count; i++ {
-
-      reply := <- replychan
-      replies[reply.i] = reply.val
-
-      ack := <- ackchan
-      acks[ack.i] = ack.val
-
     }
 
     numAcked := 0
@@ -579,7 +560,7 @@ func (pb *PBServer) broadcastFlush(segment SegmentID, group BackupGroup) bool {
 
       } else {
         reply := replies[idx]
-        if (reply.Err) {
+        if (reply.Err != OK) {
           return false
         } else {
           numAcked += 1
@@ -587,7 +568,7 @@ func (pb *PBServer) broadcastFlush(segment SegmentID, group BackupGroup) bool {
       }
     }
 
-    if numAcked == len(group) {
+    if numAcked == len(group.Backups) {
       return true
     }
 
@@ -616,11 +597,11 @@ func (pb *PBServer) TestWriteSegment(args *TestWriteSegmentArgs, reply *TestWrit
     wg.Add(1)
     go func(i int) {
       segment := Segment{}
-      segment.ID = SegmentID(i)
+      segment.ID = int64(i)
       for {
         op := Op{}
-        op.Client = ClientID(0)
-        op.Request = RequestID(0)
+        op.Client = int64(0)
+        op.Request = int64(0)
         op.Type = PutOp
         op.Key = "foo foo foo foo foo foo foo foo foo foo"
         op.Value = "bar bar bar bar bar bar bar bar bar bar"
@@ -666,8 +647,8 @@ func (pb *PBServer) TestPullSegments(args *TestPullSegmentsArgs, reply *TestPull
       go func(host string) {
         sendargs  := new(PullSegmentsArgs)
         sendreply := new(PullSegmentsReply)
-        sendargs.Segments = make([]SegmentID, 1)
-        sendargs.Segments[0] = SegmentID(rand.Int63() % 30)
+        sendargs.Segments = make([]int64, 1)
+        sendargs.Segments[0] = int64(rand.Int63() % 30)
         ok := call(host + ":" + port, "PBServer.PullSegments", sendargs, sendreply)
         if ok {
           fmt.Println("segment from", host)
@@ -704,11 +685,11 @@ func StartServer(me string) *PBServer {
 
   pb.store = map[string]*Op{}
 
-  pb.buffers = map[ServerID]*Segment{}
+  pb.buffers = map[string]*Segment{}
 
-  pb.backedUpShards = map[ServerID]map[SegmentID]bool{}
+  pb.backedUpSegs = map[string]map[int64]bool{}
 
-  pb.backups = map[SegmentID]BackupGroup{}
+  pb.backups = map[int64]BackupGroup{}
 
   rpcs := rpc.NewServer()
   rpcs.Register(pb)
