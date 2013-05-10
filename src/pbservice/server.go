@@ -820,6 +820,8 @@ type ElectRecoveryMasterReply struct {
 func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *ElectRecoveryMasterReply) error {
 
 	reply.ServerName = pb.me
+	
+	
 
 	return nil
 
