@@ -778,10 +778,46 @@ func StartServer(me string) *PBServer {
 }
 
 
+// local version of PullSegments for use in QuerySegments
+func (pb *PBServer) PullSegmentLocal(segmentID int64) Segment {
+  segment := Segment{}
+  fname := strconv.Itoa(int(segId))
+  segment.slurp(path.Join(SegPath, fname))
+  return segment
+}
+
 // tell the viewserver which shards you have segments for and which segments you have
 func (pb *PBServer) QuerySegments(args *QuerySegmentsArgs, reply *QuerySegmentsReply) error {
 
 	reply.ServerName = pb.me
+	reply.ShardsToSegments := make(map[int] (map[int64] bool))
+
+	// for each server, grab the segments belonging to that server and add them to the appropriate shards in reply.ShardsToSegments
+	for deadPrimary, _ := range args.DeadPrimaries {
+	
+		for segmentID, _ := range pb.backedUpSegs[deadPrimary] {
+		
+			segment := pb.PullSegmentLocal(segmentID)
+		
+			for _, op := range segment.Ops {
+		
+				shard := key2shard(op.Key)
+				
+				_, present := reply.ShardsToSegments[shard]
+				
+				if !present {
+				
+					reply.ShardsToSegments[shard] := make(map[int64] bool)
+				
+				}
+				
+				reply.ShardsToSegments[shard][segmentID] = true
+				
+			}
+		
+		}
+	
+	}
 
 	return nil
 
