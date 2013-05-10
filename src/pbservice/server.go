@@ -786,6 +786,7 @@ func (pb *PBServer) PullSegmentLocal(segmentID int64) Segment {
   return segment
 }
 
+
 // tell the viewserver which shards you have segments for and which segments you have
 func (pb *PBServer) QuerySegments(args *QuerySegmentsArgs, reply *QuerySegmentsReply) error {
 
@@ -821,6 +822,42 @@ func (pb *PBServer) QuerySegments(args *QuerySegmentsArgs, reply *QuerySegmentsR
 
 	return nil
 
+}
+
+
+func (pb *PBServer) PullSegmentsByShards(args *PullSegmentsByShardsArgs, reply *PullSegmentsByShardsReply) error {
+  segments := make([]Segment, len(args.Segments))
+  var wg sync.WaitGroup
+  for i, segId := range args.Segments {
+    wg.Add(1)
+    go func(i int, segId int64) {
+      segment := Segment{}
+      fname := strconv.Itoa(int(segId))
+      segment.slurp(path.Join(SegPath, fname))
+      
+      j := 0
+      
+      for _, op := range segment.Ops {
+      
+      	if args.Shards[key2shard[op.Key]] {
+      	
+      		segment.Ops[j] = op.Key
+      		j++
+      
+      	}
+      
+      }
+      
+      segment.Ops = segment.Ops[:j]
+      
+      segments[i] = segment
+      wg.Done()
+    }(i, segId)
+  }
+  wg.Wait()
+  fmt.Println("xfer", args)
+  reply.Segments = segments
+  return nil
 }
 
 
@@ -901,6 +938,15 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 		// keep track of segments which have been recovered so we don't repeat iterating through them for future shards which share them
 		recoveredSegments := make(map[int64] bool)
 		
+		// convert args.ShardsToSegmentsToServers to set of shards for use by PBServer.PullSegmentsByShards
+		shardsToRecover := make(map[int] bool)
+		
+		for shard, _ := range args.ShardsToSegmentsToServers {
+		
+			shardsToRecover[shard] = true
+		
+		}
+		
 		// execute the queryPlan by pulling the segments from each of the servers
 		for server, segments := range queryPlan {
 	
@@ -923,9 +969,9 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 				// keep track of which shards have recovered successfully for reporting to the viewservice
 				completedShards := make(map[int] bool)
 				// request the segments
-				pullSegmentsArgs := PullSegmentsArgs{Segments: requestedSegments}
-				pullSegmentsReply := PullSegmentsReply{}
-				successful := call(server, "PBServer.PullSegments", pullSegmentsArgs, &pullSegmentsReply)
+				pullSegmentsByShardsArgs := PullSegmentsByShardsArgs{Segments: requestedSegments, Shards: shardsToRecover}
+				pullSegmentsByShardsReply := PullSegmentsByShardsReply{}
+				successful := call(server, "PBServer.PullSegmentsByShards", pullSegmentsByShardsArgs, &pullSegmentsByShardsReply)
 			
 				// grab the queryLock around the entire decision phase
 				queryLock.Lock()
@@ -933,7 +979,7 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 				// upon receiving a reply, iterate through the segments, replay most recent ones, and remove them from args.ShardsToSegmentsToSenders
 				if successful {
 			
-					for _, segment := range pullSegmentsReply.Segments {
+					for _, segment := range pullSegmentsByShardsReply.Segments {
 					
 						// check for segments in recoveredSegments
 						if !recoveredSegments[segment.ID] {
@@ -943,9 +989,10 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 						
 								_, present := keysToPuts[op.Key]
 							
-								// if !present || (segment.ID greater || (segment.ID equal but opIndex greater)), replay and update
+								// if !present || (segment.ID greater || (segment.ID equal but opIndex greater)), replay, append, and update
 								if !present || (segment.ID > keysToPuts[op.Key].SegmentID || (segment.ID == keysToPuts[op.Key].SegmentID && opIndex > keysToPuts[op.key].OpIndex)) {
-								
+									
+									
 									keysToPuts[op.Key] = PutOrder{SegmentID: segment.ID, OpIndex: opIndex}
 							
 								}

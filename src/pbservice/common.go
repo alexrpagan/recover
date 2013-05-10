@@ -129,3 +129,16 @@ type PutOrder struct {
 	OpIndex int
 
 }
+
+type PullSegmentsByShardsArgs struct {
+
+	Shards map[int] bool
+	Segments []int64
+
+}
+
+type PullSegmentsByShardsReply struct {
+
+	Segments []Segment
+
+}
