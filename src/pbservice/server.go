@@ -775,7 +775,7 @@ func (pb *PBServer) QuerySegments(args *QuerySegmentsArgs, reply *QuerySegmentsR
 
 	reply.ServerName = pb.me
 
-	return nill
+	return nil
 
 }
 
@@ -797,8 +797,10 @@ type ElectRecoveryMasterReply struct {
 func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *ElectRecoveryMasterReply) error {
 
 	reply.ServerName = pb.me
+	
+	
 
-	return nill
+	return nil
 
 }
 

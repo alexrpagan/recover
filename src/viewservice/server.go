@@ -194,10 +194,14 @@ func (vs *ViewServer) tick() {
 	defer vs.mu.Unlock()
 	
 	// keeps track of servers which have died for use in launching recovery
+	// also keep track of the need for an intermediate view and which shards should be recovered
 	deadServers := make(map[string] bool)
+	intermediateView := false
+	shardsToRecover := make(map[int] bool)
 	
 	// remove dead servers from vs.serversAlive and vs.serverPings, and remember dead servers
 	// we have to clean these data structures even before reaching critical mass
+	// also update to an intermediate view so that clients don't contact dead primaries
 	for server, lastPingTime := range vs.serverPings {
 	
 		// don't have to worry about registering live servers because Ping() does it
@@ -206,8 +210,27 @@ func (vs *ViewServer) tick() {
 			deadServers[server] = true
 			delete(vs.serversAlive, server)
 			delete(vs.serverPings, server)
+			
+			for shard, primary := range vs.view.shardsToPrimaries {
+			
+				if primary == server {
+				
+					shardsToRecover[shard] = true
+					delete(vs.view.shardsToPrimaries, shard)
+					intermediateView = true
+					
+				}
+				
+			}
 		
 		}
+	
+	}
+	
+	// if switched to an intermediate view, increment the viewNumber
+	if intermediateView {
+	
+		vs.view.viewNumber++
 	
 	}
 
@@ -257,7 +280,7 @@ func (vs *ViewServer) tick() {
 	// launch recovery for all dead primaries
 	for deadServer, _ := range deadServers {
 	
-		go vs.Recover(deadServer)
+		go vs.Recover(deadServer, shardsToRecover)
 	
 	}
 
@@ -265,13 +288,10 @@ func (vs *ViewServer) tick() {
 
 
 // runs recovery for deadServer's shards
-func (vs *ViewServer) Recover(deadServer string) {
+func (vs *ViewServer) Recover(deadServer string, shardsToRecover map[int] bool) {
 
 	// grab the vs lock
 	vs.mu.Lock()
-
-	// figures out which shards are owned by deadServer
-	shardsToRecover := make(map[int] bool)
 	
 	for shard, server := range vs.view.shardsToPrimaries {
 	
@@ -428,7 +448,7 @@ func (vs *ViewServer) RecoveryCompleted(args *RecoveryCompletedArgs, reply *Reco
 	
 	// notice this is a much simpler model than lab 2
 	// there is no acknowledgement of views stored
-	// our failure model only deals with a single primary server failing
+	// our failure model only deals with simultaneous primary server failure
 	// we also don't support moving shards except for recovery
 	// under these circumstances, we have perfect consistency because only one primary is in charge of each shard until it dies
 	// when dead servers come back up, they can become log segment backups or primaries for future dead servers
