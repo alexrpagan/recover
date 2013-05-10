@@ -14,8 +14,8 @@ const QUERY_SEGMENTS_SLEEP_INTERVAL = time.Millisecond * 300
 
 type View struct {
 
-	viewNumber uint
-	shardsToPrimaries []string			// shard #{shard index} -> primary
+	ViewNumber uint
+	ShardsToPrimaries map[int] string		// shard #{shard index} -> primary
 
 }
 

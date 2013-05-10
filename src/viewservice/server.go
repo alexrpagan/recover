@@ -194,14 +194,10 @@ func (vs *ViewServer) tick() {
 	defer vs.mu.Unlock()
 	
 	// keeps track of servers which have died for use in launching recovery
-	// also keep track of the need for an intermediate view and which shards should be recovered
 	deadServers := make(map[string] bool)
-	intermediateView := false
-	shardsToRecover := make(map[int] bool)
 	
 	// remove dead servers from vs.serversAlive and vs.serverPings, and remember dead servers
 	// we have to clean these data structures even before reaching critical mass
-	// also update to an intermediate view so that clients don't contact dead primaries
 	for server, lastPingTime := range vs.serverPings {
 	
 		// don't have to worry about registering live servers because Ping() does it
@@ -210,27 +206,8 @@ func (vs *ViewServer) tick() {
 			deadServers[server] = true
 			delete(vs.serversAlive, server)
 			delete(vs.serverPings, server)
-			
-			for shard, primary := range vs.view.shardsToPrimaries {
-			
-				if primary == server {
-				
-					shardsToRecover[shard] = true
-					delete(vs.view.shardsToPrimaries, shard)
-					intermediateView = true
-					
-				}
-				
-			}
 		
 		}
-	
-	}
-	
-	// if switched to an intermediate view, increment the viewNumber
-	if intermediateView {
-	
-		vs.view.viewNumber++
 	
 	}
 
@@ -259,11 +236,11 @@ func (vs *ViewServer) tick() {
 			}
 			
 			// create an initial view with shards distributed round-robin
-			vs.view = View{viewNumber: 1, shardsToPrimaries: make([]string, NUMBER_OF_SHARDS)}
+			vs.view = View{ViewNumber: 1, ShardsToPrimaries: make(map[int] string)}
 			
 			for c := 0; c < NUMBER_OF_SHARDS; c++ {
 			
-				vs.view.shardsToPrimaries[c] = primaryServersSlice[c % len(primaryServersSlice)]
+				vs.view.ShardsToPrimaries[c] = primaryServersSlice[c % len(primaryServersSlice)]
 			
 			}
 			
@@ -271,16 +248,52 @@ func (vs *ViewServer) tick() {
 			vs.criticalMassReached = true
 		
 		}
+		
+		// return regardless; this simplifies the logic below as it's entirely independent
+		return
 	
 	}
 	
 	// note that even if we dip below critical mass, we will keep skipping the previous block
 	// it's just there to prevent the system from flooding the first live server with shards prematurely
 	
-	// launch recovery for all dead primaries
+	// keep track of the need for an intermediate view
+	intermediateView := false
+	shardsToRecover := make(map[int] bool)
+	
+	// if primaries have died, update to an intermediate view so that clients don't contact dead primaries
 	for deadServer, _ := range deadServers {
 	
-		go vs.Recover(deadServer, shardsToRecover)
+		for shard, primary := range vs.view.ShardsToPrimaries {
+			
+			if primary == deadServer {
+				
+				shardsToRecover[shard] = true
+				delete(vs.view.ShardsToPrimaries, shard)
+				intermediateView = true
+					
+			} else {
+			
+				// deadServers should only contain dead primaries
+				delete(deadServers, deadServer)
+			
+			}
+		
+		}
+	
+	}
+	
+	// if switched to an intermediate view, increment the ViewNumber
+	if intermediateView {
+	
+		vs.view.ViewNumber++
+	
+	}
+	
+	// launch recovery for all dead primaries
+	for deadPrimary, _ := range deadServers {
+	
+		go vs.Recover(deadPrimary, shardsToRecover)
 	
 	}
 
@@ -288,20 +301,10 @@ func (vs *ViewServer) tick() {
 
 
 // runs recovery for deadServer's shards
-func (vs *ViewServer) Recover(deadServer string, shardsToRecover map[int] bool) {
+func (vs *ViewServer) Recover(deadPrimary string, shardsToRecover map[int] bool) {
 
 	// grab the vs lock
 	vs.mu.Lock()
-	
-	for shard, server := range vs.view.shardsToPrimaries {
-	
-		if server == deadServer {
-		
-			shardsToRecover[shard] = true
-		
-		}
-	
-	}
 	
 	// ask every live server which shards and segments they have
 	querySegmentsArgs := QuerySegmentsArgs{ShardsToRecover: shardsToRecover}
@@ -453,14 +456,14 @@ func (vs *ViewServer) RecoveryCompleted(args *RecoveryCompletedArgs, reply *Reco
 	// under these circumstances, we have perfect consistency because only one primary is in charge of each shard until it dies
 	// when dead servers come back up, they can become log segment backups or primaries for future dead servers
 
-	// inject all of the reassigned shards into the view and increment vs.view.viewNumber
+	// inject all of the reassigned shards into the view and increment vs.view.ViewNumber
 	for _, shard := range args.ShardsRecovered {
 	
-		vs.view.shardsToPrimaries[shard] = args.ServerName
+		vs.view.ShardsToPrimaries[shard] = args.ServerName
 	
 	}
 	
-	vs.view.viewNumber++
+	vs.view.ViewNumber++
 
 	return nil
 
