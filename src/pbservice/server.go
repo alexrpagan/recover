@@ -43,6 +43,7 @@ type PBServer struct {
 
   // TODO: reference to shardmaster
   clerk viewservice.Clerk
+  view viewserver.View
   //Config shardmaster.Config
 
   log *Log
@@ -610,6 +611,8 @@ func (pb *PBServer) broadcastFlush(segment int64, group BackupGroup) bool {
 
 func (pb *PBServer) tick() {
 
+	pb.view, err = pb.clerk.Ping(pb.view.ViewNumber)
+
 }
 
 
@@ -697,10 +700,13 @@ func (pb *PBServer) kill() {
   pb.l.Close()
 }
 
-func StartServer(me string) *PBServer {
+func StartServer(me string, viewServer string) *PBServer {
 
   pb := new(PBServer)
   pb.me = me
+  
+  pb.view := View{}
+  pb.clerk = viewservice.MakeClerk(me, viewServer)
 
   // initialize main data structures
   pb.log = new(Log)
@@ -992,6 +998,32 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 								// if !present || (segment.ID greater || (segment.ID equal but opIndex greater)), replay, append, and update
 								if !present || (segment.ID > keysToPuts[op.Key].SegmentID || (segment.ID == keysToPuts[op.Key].SegmentID && opIndex > keysToPuts[op.key].OpIndex)) {
 									
+									pb.mu.Lock()
+									
+									if !pb.log.getCurrSegment().append(*op) {
+									
+										delete(pb.backups, seg.ID)
+										
+										if pb.broadcastFlush(seg.ID, group) {
+										
+											seg = pb.log.newSegment()
+											seg.append(*op)
+											
+											if pb.enlistReplicas(*seg) == false {
+											
+												panic("could not enlist enough replicas")
+												
+											}
+											
+										} else {
+										
+											panic("backup failure on flush")
+											
+										}
+										
+									}
+									
+									pb.mu.Unlock()
 									
 									keysToPuts[op.Key] = PutOrder{SegmentID: segment.ID, OpIndex: opIndex}
 							

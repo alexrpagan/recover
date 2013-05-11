@@ -41,7 +41,6 @@ func MakeClerk(me string, server string) *Clerk {
   ck := new(Clerk)
   ck.me = me
   ck.server = server
-  ck.view = View{}
   return ck
 }
 
