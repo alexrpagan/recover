@@ -41,6 +41,7 @@ func MakeClerk(me string, server string) *Clerk {
   ck := new(Clerk)
   ck.me = me
   ck.server = server
+  ck.view = View{}
   return ck
 }
 
@@ -84,9 +85,11 @@ func (ck *Clerk) Ping(viewnum uint) (View, error) {
   // send an RPC request, wait for the reply.
   ok := call(ck.server, "ViewServer.Ping", args, &reply)
   if ok == false {
+    ck.view = View{}
     return View{}, fmt.Errorf("Ping(%v) failed", viewnum)
   }
 
+  ck.view = reply.View
   return reply.View, nil
 }
 

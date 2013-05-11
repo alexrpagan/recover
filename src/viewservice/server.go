@@ -297,7 +297,7 @@ func (vs *ViewServer) tick() {
 
 
 // runs recovery for deadPrimaries and shardsToRecover
-func (vs *ViewServer) Recover(deadPrimaries string, shardsToRecover map[int] bool) {
+func (vs *ViewServer) Recover(deadPrimaries map[string] bool, shardsToRecover map[int] bool) {
 
 	// grab the vs lock until vs.serversAlive has been copied into a slice
 	vs.mu.Lock()
@@ -328,7 +328,7 @@ func (vs *ViewServer) Recover(deadPrimaries string, shardsToRecover map[int] boo
 	
 	for shard, _ := range shardsToRecover {
 	
-		shardsToSegmentsToServers[shard] = make(map[int64] (map[string] bool))
+		shardsToSegmentsToBackups[shard] = make(map[int64] (map[string] bool))
 	
 	}
 	
@@ -351,7 +351,7 @@ func (vs *ViewServer) Recover(deadPrimaries string, shardsToRecover map[int] boo
 			
 			if successful {
 			
-				// for each successful reply, iterate through ShardsToSegments and populate shardsToSegmentsToServers
+				// for each successful reply, iterate through ShardsToSegments and populate shardsToSegmentsToBackups
 				for shard, segments := range querySegmentsReply.ShardsToSegments {
 				
 					// elect a recoveryMaster to recover the shard
@@ -370,15 +370,15 @@ func (vs *ViewServer) Recover(deadPrimaries string, shardsToRecover map[int] boo
 				
 					for segment, _ := range segments {
 				
-						_, present = shardsToSegmentsToServers[shard][segment]
+						_, present = shardsToSegmentsToBackups[shard][segment]
 			
 						if !present {
 				
-							shardsToSegmentsToServers[shard][segment] = make(map[string] bool)
+							shardsToSegmentsToBackups[shard][segment] = make(map[string] bool)
 				
 						}
 				
-						shardsToSegmentsToServers[shard][segment][querySegmentsReply.ServerName] = true
+						shardsToSegmentsToBackups[shard][segment][querySegmentsReply.ServerName] = true
 				
 					}
 				
@@ -399,7 +399,7 @@ func (vs *ViewServer) Recover(deadPrimaries string, shardsToRecover map[int] boo
 		
 		queryLock.Lock()
 		
-		if queryRepliesFinished >= len(querySegmentsReplies) {
+		if queryRepliesFinished >= len(serversAliveSlice) {
 		
 			queryLock.Unlock()
 			
@@ -411,14 +411,14 @@ func (vs *ViewServer) Recover(deadPrimaries string, shardsToRecover map[int] boo
 	
 	}
 	
-	// send shardsToSegmentsToServers to each of the recovery masters in serversToShards
+	// send shardsToSegmentsToBackups to each of the recovery masters in serversToShards
 	for recoveryMaster, recoveryShards := range serversToShards {
 	
 		recoveryData := make(map[int] (map[int64] (map[string] bool)))
 	
 		for recoveryShard, _ := range recoveryShards {
 		
-			recoveryData[recoveryShard] = shardsToSegmentsToServers[recoveryShard]
+			recoveryData[recoveryShard] = shardsToSegmentsToBackups[recoveryShard]
 		
 		}
 	
