@@ -1,5 +1,9 @@
 package pbservice
 
+import (
+  "time"
+)
+
 const (
 
   OK = "OK"
@@ -15,7 +19,7 @@ const (
   ErrBackupFailure = "ErrBackupFailure"
 
   ErrNotPending = "ErrNotPending"
-  
+
   PULL_SEGMENTS_SLEEP_INTERVAL = time.Millisecond * 300
 
 )
@@ -120,7 +124,7 @@ type TestReadSegmentArgs struct {
   NumOfSegs int
 }
 
-type TestReadSegmentReply struct {}i
+type TestReadSegmentReply struct {}
 
 
 type PutOrder struct {
@@ -140,5 +144,34 @@ type PullSegmentsByShardsArgs struct {
 type PullSegmentsByShardsReply struct {
 
 	Segments []Segment
+
+}
+
+type QuerySegmentsArgs struct {
+  DeadPrimaries map[string] bool
+
+}
+
+type QuerySegmentsReply struct {
+  ServerName string
+  ShardsToSegments map[int] (map[int64] bool)
+}
+
+type ElectRecoveryMasterArgs struct {
+  ShardsToSegmentsToServers map[int]map[int64]map[string]bool
+  ShardsToSegmentsToSenders map[int]map[int64]map[string]bool
+}
+
+type ElectRecoveryMasterReply struct {
+  ServerName string
+  ShardRecovered int
+}
+
+type RecoveryCompletedArgs struct {
+  ServerName string
+  ShardRecovered int
+}
+
+type RecoveryCompletedReply struct {
 
 }
