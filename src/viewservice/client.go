@@ -30,13 +30,6 @@ type Clerk struct {
 }
 
 
-/*
-*********************
-Unmodified Code
-*********************
-*/
-
-
 func MakeClerk(me string, server string) *Clerk {
   ck := new(Clerk)
   ck.me = me
@@ -53,7 +46,7 @@ func call(srv string, rpcname string,
     return false
   }
   defer c.Close()
-    
+
   err := c.Call(rpcname, args, reply)
   if err == nil {
     return true
@@ -62,18 +55,9 @@ func call(srv string, rpcname string,
 }
 
 
-/*
-*********************
-Modified Structures
-*********************
-*/
-
-
-/*
-*********************
-Modified Code
-*********************
-*/
+func (ck *Clerk) GetServerName() string {
+  return ck.server
+}
 
 
 func (ck *Clerk) Ping(viewnum uint) (View, error) {
