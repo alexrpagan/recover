@@ -620,7 +620,7 @@ func (pb *PBServer) tick() {
 
 	view, err := pb.clerk.Ping(pb.view.ViewNumber)
 
-  if err == nil {
+  if err != nil {
     pb.view = view
   }
 
