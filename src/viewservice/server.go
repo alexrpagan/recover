@@ -232,6 +232,8 @@ func (vs *ViewServer) tick() {
 			for primaryServer, _ := range vs.primaryServers {
 			
 				primaryServersSlice[i] = primaryServer
+				
+				i++
 			
 			}
 			
