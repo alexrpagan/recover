@@ -3,8 +3,7 @@ david's notes of stuff to do:
 1)
 
 	when recovering, update owners for segments at backups to recovery master
-	may require some intermediate state or knowledge of recovery
-	possibly do it in PullSegments, possible when view changes
+	do it in PullSegments
 	
 2)
 
@@ -13,7 +12,3 @@ david's notes of stuff to do:
 3)
 
 	replay and append in PBServer.ElectRecoveryMaster
-	
-4)
-
-	viewserver should remember ongoing recoveries and be able to timeout or recognized failed recovery master

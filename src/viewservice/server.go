@@ -15,6 +15,7 @@ import "time"
 import "sync"
 import "fmt"
 import "os"
+import "math/rand"
 
 
 /*
@@ -261,7 +262,6 @@ func (vs *ViewServer) tick() {
 	
 	// keep track of the need for an intermediate view
 	intermediateView := false
-	shardsToRecover := make(map[int] bool)
 	
 	// if primaries have died, update to an intermediate view so that clients don't contact dead primaries
 	for deadServer, _ := range deadServers {
@@ -270,7 +270,6 @@ func (vs *ViewServer) tick() {
 			
 			if primary == deadServer {
 				
-				shardsToRecover[shard] = true
 				delete(vs.view.ShardsToPrimaries, shard)
 				intermediateView = true
 					
@@ -293,25 +292,26 @@ func (vs *ViewServer) tick() {
 	}
 	
 	// launch recovery for all dead primaries
-	go vs.Recover(deadServers, shardsToRecover)
+	go vs.Recover(deadServers)
 
 }
 
 
-// runs recovery for deadPrimaries and shardsToRecover
-func (vs *ViewServer) Recover(deadPrimaries map[string] bool, shardsToRecover map[int] bool) {
+// runs recovery for deadPrimaries
+func (vs *ViewServer) Recover(deadPrimaries map[string] bool) {
 
 	// grab the vs lock until vs.serversAlive has been copied into a slice
 	vs.mu.Lock()
 	
-	// convert vs.serversAlive to a slice in order to index into it
+	// convert vs.serversAlive to a random permutation slice in order to index into it
 	serversAliveSlice := make([]string, len(vs.serversAlive))
+	serversAlivePerm := rand.Perm(len(serversAliveSlice))
 	
 	i := 0
 	
 	for serverAlive, _ := range vs.serversAlive {
 	
-		serversAliveSlice[i] = serverAlive
+		serversAliveSlice[serversAlivePerm[i]] = serverAlive
 	
 	}
 	
@@ -322,24 +322,18 @@ func (vs *ViewServer) Recover(deadPrimaries map[string] bool, shardsToRecover ma
 	// note that if recovery can't be fully satisfied by the live servers,
 	// it means all of the backups for at least 1 segment have failed, and there is nothing we can do
 	// there is no point in checking if full recovery is satisfied because even if it isn't (due to failures), we can't satisfy it any more
-	querySegmentsArgs := QuerySegmentsArgs{DeadPrimaries: deadPrimaries, ShardsToRecover: shardsToRecover}
+	querySegmentsArgs := QuerySegmentsArgs{DeadPrimaries: deadPrimaries}
 	// elect recovery masters in serversToShards
 	serversToShards := make(map[string] (map[int] bool))
 	// keep track of which segments are owned by which servers for each shard
 	shardsToSegmentsToBackups := make(map[int] (map[int64] (map[string] bool)))
 	
-	for shard, _ := range shardsToRecover {
-	
-		shardsToSegmentsToBackups[shard] = make(map[int64] (map[string] bool))
-	
-	}
-	
 	// synchronize around the decision phases of the separate query threads
 	var queryLock sync.Mutex
 	// keep track of how many replies have finished so we can wait after
 	queryRepliesFinished := 0
-	// keep track of how many shards have been reported so we can assign recovery masters
-	shardsSeen := 0
+	// keep track of how many shards have been assigned so we can assign recovery masters
+	shardsAssigned := 0
 	
 	for server, _ := range vs.serversAlive {
 	
@@ -356,25 +350,36 @@ func (vs *ViewServer) Recover(deadPrimaries map[string] bool, shardsToRecover ma
 				// for each successful reply, iterate through ShardsToSegments and populate shardsToSegmentsToBackups
 				for shard, segments := range querySegmentsReply.ShardsToSegments {
 				
+					// make a map for the shard
+					_, shardHasSegmentsBackups := shardsToSegmentsToBackups[shard]
+					
+					if !shardHasSegmentsBackups {
+					
+						shardsToSegmentsToBackups[shard] = make(map[int64] (map[string] bool))
+					
+					}
+				
 					// elect a recoveryMaster to recover the shard
-					_, present := serversToShards[serversAliveSlice[shardsSeen % len(serversAliveSlice)]]
+					recoveryMaster := serversAliveSlice[shardsAssigned % len(serversAliveSlice)]
+					
+					_, recoveryMasterHasShards := serversToShards[recoveryMaster]
 		
-					if !present {
+					if !recoveryMasterHasShards {
 		
-						serversToShards[serversAliveSlice[shardsSeen % len(serversAliveSlice)]] = make(map[int] bool)
+						serversToShards[recoveryMaster] = make(map[int] bool)
 		
 					}
 		
-					serversToShards[serversAliveSlice[shardsSeen % len(serversAliveSlice)]][shard] = true
+					serversToShards[recoveryMaster][shard] = true
 					
-					// increment shardsSeen for the next shard to be assigned to the next recoveryMaster
-					shardsSeen++
+					// increment shardsAssigned for the next shard to be assigned to the next recoveryMaster
+					shardsAssigned++
 				
 					for segment, _ := range segments {
 				
-						_, present = shardsToSegmentsToBackups[shard][segment]
+						_, shardSegmentPairHasBackups = shardsToSegmentsToBackups[shard][segment]
 			
-						if !present {
+						if !shardSegmentPairHasBackups {
 				
 							shardsToSegmentsToBackups[shard][segment] = make(map[string] bool)
 				
