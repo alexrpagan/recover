@@ -13,71 +13,59 @@ const QUERY_SEGMENTS_SLEEP_INTERVAL = time.Millisecond * 300
 
 
 type View struct {
-
 	ViewNumber uint
 	ShardsToPrimaries map[int] string		// shard #{shard index} -> primary
-
 }
 
 
 type PingArgs struct {
-
 	ServerName string
 	ViewNumber uint
-
 }
 
 type PingReply struct {
-
 	View View
 	ServersAlive map[string] bool			// set of servers primaries can choose as backups
-
 }
 
-
 type GetArgs struct {
-
 }
 
 type GetReply struct {
-
 	View View
-
 }
-
-
-type QuerySegmentsArgs struct {
-
-	DeadPrimaries map[string] bool
-
-}
-
-type QuerySegmentsReply struct {
-
-	ServerName string
-	ShardsToSegments map[int] (map[int64] bool)
-
-}
-
-
-type ElectRecoveryMasterArgs struct {
-
-	ShardsToSegmentsToServers map[int] (map[int64] (map[string] bool))	
-
-}
-
-type ElectRecoveryMasterReply struct {
-
-}
-
 
 type RecoveryCompletedArgs struct {
-
 	ServerName string
 	ShardRecovered int
-
 }
 
 type RecoveryCompletedReply struct {
 
+}
+
+
+//// RPCS from pbservice
+
+// QuerySegments
+
+type QuerySegmentsArgs struct {
+  DeadPrimaries map[string][]int
+}
+
+type QuerySegmentsReply struct {
+  ServerName string
+  BackedUpSegments map[string]map[int64]map[int]bool
+}
+
+
+// ElectRecoveryMaster
+
+type ElectRecoveryMasterArgs struct {
+  RecoveryData map[int]map[int64][]string
+}
+
+type ElectRecoveryMasterReply struct {
+  ServerName string
+  ShardRecovered int
 }

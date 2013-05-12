@@ -24,9 +24,12 @@ const (
 
 )
 
-const SrvPort = 5001
-
 type Err string
+
+type PutOrder struct {
+  SegmentID int64
+  OpIndex int
+}
 
 
 // Put
@@ -69,6 +72,8 @@ type ForwardOpReply struct {
 }
 
 
+// Flush Seg
+
 type FlushSegArgs struct {
   Origin string
   OldSegment int64
@@ -101,7 +106,44 @@ type PullSegmentsReply struct {
 }
 
 
-//TESTING STUFF
+// PullSegmentsByShard
+
+type PullSegmentsByShardsArgs struct {
+  Owner string
+	Shards map[int] bool
+	Segments []int64
+}
+
+type PullSegmentsByShardsReply struct {
+	Segments []Segment
+}
+
+
+// QuerySegments
+
+type QuerySegmentsArgs struct {
+  DeadPrimaries map[string][]int
+}
+
+type QuerySegmentsReply struct {
+  ServerName string
+  BackedUpSegments map[string]map[int64]map[int]bool
+}
+
+
+// ElectRecoveryMaster
+
+type ElectRecoveryMasterArgs struct {
+  RecoveryData map[int]map[int64][]string
+}
+
+type ElectRecoveryMasterReply struct {
+  ServerName string
+  ShardRecovered int
+}
+
+
+// TESTING----------------------------
 
 // TestSendSegment
 
@@ -126,52 +168,5 @@ type TestReadSegmentArgs struct {
 
 type TestReadSegmentReply struct {}
 
+// \TESTING---------------------------
 
-type PutOrder struct {
-
-	SegmentID int64
-	OpIndex int
-
-}
-
-type PullSegmentsByShardsArgs struct {
-
-	Shards map[int] bool
-	Segments []int64
-
-}
-
-type PullSegmentsByShardsReply struct {
-
-	Segments []Segment
-
-}
-
-type QuerySegmentsArgs struct {
-  DeadPrimaries map[string] bool
-
-}
-
-type QuerySegmentsReply struct {
-  ServerName string
-  ShardsToSegments map[int] (map[int64] bool)
-}
-
-type ElectRecoveryMasterArgs struct {
-  ShardsToSegmentsToServers map[int]map[int64]map[string]bool
-  ShardsToSegmentsToSenders map[int]map[int64]map[string]bool
-}
-
-type ElectRecoveryMasterReply struct {
-  ServerName string
-  ShardRecovered int
-}
-
-type RecoveryCompletedArgs struct {
-  ServerName string
-  ShardRecovered int
-}
-
-type RecoveryCompletedReply struct {
-
-}

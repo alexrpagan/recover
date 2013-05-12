@@ -96,9 +96,14 @@ func (ck *Clerk) Put(key string, value string) {
     ck.updateView()
   }
 
+  ck.RequestID += 1
+
   args := PutArgs{}
   args.Key = key
   args.Value = value
+  args.Client = ck.ClientID
+  args.Request = ck.RequestID
+
   var reply PutReply
 
   for {

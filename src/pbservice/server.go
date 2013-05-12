@@ -64,7 +64,7 @@ type PBServer struct {
   buffers map[string]*Segment
 
   // which segs am I responsible for?
-  backedUpSegs map[string]map[int64]bool
+  backedUpSegs map[string]map[int64]map[int]bool
 
   // primary's backup map
   backups map[int64]BackupGroup
@@ -202,6 +202,11 @@ type BackupGroup struct {
 }
 
 
+// records that the segment that we're backing contains ops from a certain shard
+func (pb *PBServer) recordShardBackup (origin string, segID int64, op Op) {
+  pb.backedUpSegs[origin][segID][key2shard(op.Key)] = true
+}
+
 func (pb *PBServer) PullSegments(args *PullSegmentsArgs, reply *PullSegmentsReply) error {
   segments := make([]Segment, len(args.Segments))
   var wg sync.WaitGroup
@@ -320,8 +325,8 @@ func (pb *PBServer) checkPrimary(server string, segment int64, key string) Err {
 
   if segment != int64(0) {
     segs, _ := pb.backedUpSegs[server]
-    resp, _ := segs[segment]
-    if resp == false {
+    _, ok := segs[segment]
+    if ok == false {
       return ErrNotResponsible
     }
   }
@@ -434,24 +439,33 @@ func (pb *PBServer) EnlistReplica(args *EnlistReplicaArgs, reply *EnlistReplicaR
   pb.mu.Lock()
   defer pb.mu.Unlock()
 
-  segs, ok := pb.backedUpSegs[args.Origin]
+  segID  := args.Segment.ID
+  origin := args.Origin
 
-  if ! ok {
-    segs = map[int64]bool{}
+  segs, segok := pb.backedUpSegs[origin]
+
+  if ! segok {
+    // segment uuids -> set of shard ids
+    segs = make(map[int64] map[int]bool)
   }
 
-  if segs[args.Segment.ID] == false {
+  _, shardok := segs[segID]
 
-    segs[args.Segment.ID] = true
-    pb.backedUpSegs[args.Origin] = segs
+  if shardok == false {
 
-    // set segment as buffer
-    pb.buffers[args.Origin] = &(args.Segment)
+    segs[segID] = make(map[int]bool)
+
+    pb.buffers[origin] = &(args.Segment)
+
+    // record shardnum for op in buffer
+    for _, op := range args.Segment.Ops {
+      pb.recordShardBackup(origin, segID, op)
+    }
+
+    pb.backedUpSegs[origin] = segs
 
   } else {
-
     panic("replica already enlisted")
-
   }
 
   reply.Err = OK
@@ -494,17 +508,21 @@ func (pb *PBServer) ForwardOp(args *ForwardOpArgs, reply *ForwardOpReply) error 
   pb.mu.Lock()
   defer pb.mu.Unlock()
 
-  err := pb.checkPrimary(args.Origin, args.Segment, args.Op.Key)
+  seg    := args.Segment
+  origin := args.Origin
+  op     := args.Op
+
+  err := pb.checkPrimary(origin, seg, op.Key)
   if err != OK {
     reply.Err = err
     return nil
   }
 
-  seg, _ := pb.buffers[args.Origin]
-  res := seg.append(args.Op)
+  buf, _ := pb.buffers[origin]
+  res := buf.append(op)
+  pb.recordShardBackup(origin, seg, op)
 
   if res == false {
-    fmt.Printf("Segment %d %v\n", args.Segment, seg)
     panic("buffer size exceeded in replica. should never happen.")
   }
 
@@ -642,14 +660,11 @@ func (pb *PBServer) broadcastFlush(segment int64, group BackupGroup) bool {
 func (pb *PBServer) tick() {
   pb.mu.Lock()
   defer pb.mu.Unlock()
-
 	view, serversAlive, err := pb.clerk.Ping(pb.view.ViewNumber)
-
   if err == nil {
     pb.view = view
     pb.serversAlive = serversAlive
   }
-
 }
 
 
@@ -726,56 +741,23 @@ func (pb *PBServer) TestPullSegments(args *TestPullSegmentsArgs, reply *TestPull
   return nil
 }
 
-
-
-
-
-
-
-// local version of PullSegments for use in QuerySegments
-func (pb *PBServer) pullSegmentLocal(segmentID int64) Segment {
-  segment := Segment{}
-  fname := strconv.Itoa(int(segmentID))
-  segment.slurp(path.Join(SegPath, fname))
-  return segment
-}
-
-
 // tell the viewserver which shards you have segments for and which segments you have
 func (pb *PBServer) QuerySegments(args *QuerySegmentsArgs, reply *QuerySegmentsReply) error {
 
-	reply.ServerName = pb.me
-	reply.ShardsToSegments = make(map[int] (map[int64] bool))
+  // subset of backedUpSegs relevant to query
+	relevant := make(map[string] map[int64] map[int]bool)
 
-	// for each server, grab the segments belonging to that server and add them to the appropriate shards in reply.ShardsToSegments
-	for deadPrimary, _ := range args.DeadPrimaries {
-
-		for segmentID, _ := range pb.backedUpSegs[deadPrimary] {
-
-			segment := pb.pullSegmentLocal(segmentID)
-
-			for _, op := range segment.Ops {
-
-				shard := key2shard(op.Key)
-
-				_, present := reply.ShardsToSegments[shard]
-
-				if !present {
-
-					reply.ShardsToSegments[shard] = make(map[int64] bool)
-
-				}
-
-				reply.ShardsToSegments[shard][segmentID] = true
-
-			}
-
-		}
-
+	for dead, _ := range args.DeadPrimaries {
+    segMap, ok := pb.backedUpSegs[dead]
+    if ok {
+      relevant[dead] = segMap
+    }
 	}
 
-	return nil
+  reply.ServerName = pb.me
+  reply.BackedUpSegments = relevant
 
+	return nil
 }
 
 
@@ -787,29 +769,18 @@ func (pb *PBServer) PullSegmentsByShards(args *PullSegmentsByShardsArgs, reply *
     go func(i int, segId int64) {
       segment := Segment{}
       fname := strconv.Itoa(int(segId))
-      segment.slurp(path.Join(SegPath, fname))
-
-      j := 0
-
+      segment.slurp(path.Join(SegPath, pb.meHash, pb.md5Digest(args.Owner), fname))
+      // filter out operations from irrelevant shards
       for _, op := range segment.Ops {
-
        	if args.Shards[key2shard(op.Key)] {
-
-      		segment.Ops[j] = op
-      		j++
-
+      		segment.append(op)
       	}
-
       }
-
-      segment.Ops = segment.Ops[:j]
-
       segments[i] = segment
       wg.Done()
     }(i, segId)
   }
   wg.Wait()
-  fmt.Println("xfer", args)
   reply.Segments = segments
   return nil
 }
@@ -817,19 +788,19 @@ func (pb *PBServer) PullSegmentsByShards(args *PullSegmentsByShardsArgs, reply *
 
 // recover the shards in args.ShardsToSegmentsToServers
 func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *ElectRecoveryMasterReply) error {
-
+/*
 	reply.ServerName = pb.me
-
   var repliesFinishedLock sync.Mutex
 
 	// while there are still shards to recover, assemble and execute queryPlans for segments
 	for len(args.ShardsToSegmentsToServers) > 0 {
 
-		// map from backups to log segments for querying
+		// backups -> set of log segments. segments that we need to retrieve.
 		queryPlan := make(map[string] (map[int64] bool))
-		// map from segments to shards to keep track of completed shards
+
+		// segment IDs -> shards. keep track of completed shards.
 		segmentShards := make(map[int64] int)
-		// keep track of how many replies have finished so we can wait for one query to complete before beginning the next
+
 		repliesFinished := 0
 
 		// assemble queryPlan by assigning segments to the server with the smallest queryPlan so far
@@ -841,29 +812,25 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 				// for keys where this is not the final segment, they will not be affect
 				// for keys where this is the final segment among several, their values will revert to the last recoverable value
 				// for keys where this is the only segment, the data will be completely lost
-				if len(servers) <= 0 {
 
+				if len(servers) == 0 {
+
+          fmt.Printf("Could not recover segment %d for shard %d\n", segment, shard)
 					delete(args.ShardsToSegmentsToServers[shard], segment)
 
-				// otherwise, we have backups and should proceed normally
 				} else {
 
-					// keep track of which shards segments belong to
-					segmentShards[segment] = shard
+					segmentShards[segment] = shard   // keep track of which shards segments belong to whom
 
 					// find which server has the shortest query plan so far and assign to it this segment
 					min := -1
 					var minServer string
 
 					for server, _ := range servers {
-
 						if min < 0 || len(queryPlan[server]) < min {
-
 							min = len(queryPlan[server])
 							minServer = server
-
 						}
-
 					}
 
 					_, present := queryPlan[minServer]
@@ -871,9 +838,7 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 					// notice we only at the server to the queryPlan once we know it's part of the query
 					// we don't create a map prematurely both for simplicity and for knowledge of how many replies we're waiting for before making another query
 					if !present {
-
 						queryPlan[minServer] = make(map[int64] bool)
-
 					}
 
 					queryPlan[minServer][segment] = true
@@ -889,9 +854,11 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 
 		// synchronize around the decision phases of the separate query threads
 		var queryLock sync.Mutex
+
 		// most recent recovered puts by key to allow replaying of more recent puts from recovered log segments
 		keysToPuts := make(map[string] PutOrder)
-		// keep track of segments which have been recovered so we don't repeat iterating through them for future shards which share them
+
+    // keep track of segments which have been recovered so we don't repeat iterating through them for future shards which share them
 		recoveredSegments := make(map[int64] bool)
 
 		// convert args.ShardsToSegmentsToServers to set of shards for use by PBServer.PullSegmentsByShards
@@ -1077,8 +1044,8 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 
 	}
 
+*/
 	return nil
-
 }
 
 
@@ -1123,7 +1090,7 @@ func StartMe(me string, viewServer string, networkMode string) *PBServer {
 
   pb.buffers = map[string]*Segment{}
 
-  pb.backedUpSegs = map[string]map[int64]bool{}
+  pb.backedUpSegs = map[string]map[int64]map[int]bool{}
 
   pb.backups = map[int64]BackupGroup{}
 

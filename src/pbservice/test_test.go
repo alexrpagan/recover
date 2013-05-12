@@ -49,7 +49,7 @@ func Test1(t *testing.T) {
   vs := viewservice.StartMe(vshost, mode)
 
   numOfClients := 5
-  numOfServers := 12
+  numOfServers := 8
 
   clients := make([]*Clerk, numOfClients)
   servers := make([]*PBServer, numOfServers)
@@ -73,7 +73,7 @@ func Test1(t *testing.T) {
   //round of puts
   for i:=0; i < iters; i++ {
     t1 := time.Now().UnixNano()
-    clients[0].Put(fmt.Sprintf("%d", i % 10), fmt.Sprintf("gibberish%d", i % 10))
+    clients[0].Put(fmt.Sprintf("%d", i % 10), fmt.Sprintf("gibberish%d", i))
     t2 := time.Now().UnixNano()
     times[i] = t2-t1
   }
@@ -112,7 +112,7 @@ func printStats(samples []int64) {
     }
   }
 
-  fmt.Printf("Avg time %d\n", sum/int64(n*1000))
+  fmt.Printf("Avg time (micros) %d\n", sum/int64(n*1000))
   fmt.Printf("Min %d\n", min/int64(1000))
   fmt.Printf("Max %d\n", max/int64(1000))
 
