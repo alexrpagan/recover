@@ -49,7 +49,6 @@ type GetReply struct {
 type QuerySegmentsArgs struct {
 
 	DeadPrimaries map[string] bool
-	ShardsToRecover map[int] bool
 
 }
 
