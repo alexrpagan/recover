@@ -20,21 +20,22 @@ type Clerk struct {
   view viewservice.View
   ClientID int64
   RequestID int64
+  networkMode string
 }
 
 
 // makes a new clerk for the pbservice which encapsulates a viewservice clerk
-func MakeClerk(me string, vshost string) *Clerk {
+func MakeClerk(me string, vshost string, networkMode string) *Clerk {
   ck := new(Clerk)
-  ck.vs = viewservice.MakeClerk(me, vshost)
+  ck.vs = viewservice.MakeClerk(me, vshost, networkMode)
+  ck.networkMode = networkMode
   return ck
 }
 
 
 // sends an RPC
-func call(srv string, rpcname string,
-          args interface{}, reply interface{}) bool {
-  c, errx := rpc.Dial("unix", srv)
+func call(srv string, rpcname string, networkMode string, args interface{}, reply interface{}) bool {
+  c, errx := rpc.Dial(networkMode, srv)
   if errx != nil {
     fmt.Println(errx)
     return false
@@ -66,7 +67,7 @@ func (ck *Clerk) Get(key string) string {
     shard := key2shard(args.Key)
     primary, ok := ck.view.ShardsToPrimaries[shard]
     if ok {
-      ack := call(primary, "PBServer.Get", args, &reply)
+      ack := call(primary, "PBServer.Get", ck.networkMode, args, &reply)
       if ack { break }
     }
     ck.updateView()
@@ -101,12 +102,15 @@ func (ck *Clerk) Put(key string, value string) {
   var reply PutReply
 
   for {
+
     shard := key2shard(args.Key)
     primary, ok := ck.view.ShardsToPrimaries[shard]
+
     if ok {
-      ack := call(primary, "PBServer.Put", args, &reply)
+      ack := call(primary, "PBServer.Put", ck.networkMode, args, &reply)
       if ack { break }
     }
+
     ck.updateView()
     time.Sleep(viewservice.PING_INTERVAL)
   }

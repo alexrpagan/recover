@@ -18,6 +18,7 @@ import (
   "viewservice"
   "crypto/md5"
   "io"
+  "strings"
 )
 
 
@@ -70,9 +71,6 @@ type PBServer struct {
 
   // have we seen these puts?
   request map[Request]bool
-
-  // shim of live hosts
-  hosts []string
 
   // who's around?
   serversAlive map[string]bool
@@ -248,6 +246,8 @@ func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
 
 func (pb *PBServer) Put(args *PutArgs, reply *PutReply) error {
   pb.mu.Lock()
+  defer pb.mu.Unlock()
+
   seg, _ := pb.log.getCurrSegment()
   group, ok := pb.backups[seg.ID]
 
@@ -260,7 +260,6 @@ func (pb *PBServer) Put(args *PutArgs, reply *PutReply) error {
       group = pb.backups[seg.ID]
     }
   }
-  pb.mu.Unlock()
 
   // create operation
   putOp := new(Op)
@@ -278,7 +277,6 @@ func (pb *PBServer) Put(args *PutArgs, reply *PutReply) error {
 
   flushed := false
 
-  pb.mu.Lock()
   if seg.append(*putOp) == false {
     flushed = true
     if pb.broadcastFlush(seg.ID, group) {
@@ -305,7 +303,6 @@ func (pb *PBServer) Put(args *PutArgs, reply *PutReply) error {
     reply.Err = ErrBackupFailure
     return nil
   }
-  pb.mu.Unlock()
 
   reply.Err = OK
   return nil
@@ -331,14 +328,6 @@ func (pb *PBServer) checkPrimary(server string, segment int64, key string) Err {
 
   return OK
 }
-
-// func (pb *PBServer) getReplicatedSegments(failedBackup string) ([]int64, []BackupGroup) {
-//   // search through backups and return replication groups of which this server was member
-// }
-
-
-//TODO: fixme
-
 
 func (pb *PBServer) enlistReplicas(segment Segment) bool {
 
@@ -393,7 +382,7 @@ func (pb *PBServer) enlistReplicas(segment Segment) bool {
         wg.Add(1)
         go func(i int, backup string) {
           enlistReply := new(EnlistReplicaReply)
-          enlistAck   := call(backup, "PBServer.EnlistReplica", enlistArgs, enlistReply)
+          enlistAck   := call(backup, "PBServer.EnlistReplica", pb.networkMode, enlistArgs, enlistReply)
           replies[i] = enlistReply
           acks[i]    = enlistAck
           wg.Done()
@@ -549,7 +538,7 @@ func (pb *PBServer) broadcastForward(op Op, segment int64, group BackupGroup) bo
         wg.Add(1)
         go func(idx int, backup string) {
           fwdReply := new(ForwardOpReply)
-          ack := call(backup, "PBServer.ForwardOp", fwdArgs, fwdReply)
+          ack := call(backup, "PBServer.ForwardOp", pb.networkMode, fwdArgs, fwdReply)
           replies[idx] = fwdReply
           acks[idx]    = ack
           wg.Done()
@@ -611,7 +600,7 @@ func (pb *PBServer) broadcastFlush(segment int64, group BackupGroup) bool {
         count += 1
         go func(idx int, backup string) {
           flshReply := new(FlushSegReply)
-          ack := call(backup, "PBServer.FlushSeg", flshArgs, flshReply)
+          ack := call(backup, "PBServer.FlushSeg", pb.networkMode, flshArgs, flshReply)
           replies[idx] = flshReply
           acks[idx] = ack
         }(idx, backup)
@@ -723,7 +712,7 @@ func (pb *PBServer) TestPullSegments(args *TestPullSegmentsArgs, reply *TestPull
         sendreply := new(PullSegmentsReply)
         sendargs.Segments = make([]int64, 1)
         sendargs.Segments[0] = int64(rand.Int63() % 30)
-        ok := call(host, "PBServer.PullSegments", sendargs, sendreply)
+        ok := call(host, "PBServer.PullSegments", pb.networkMode, sendargs, sendreply)
         if ok {
           fmt.Println("segment from", host)
         }
@@ -939,7 +928,7 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 				// request the segments
 				pullSegmentsByShardsArgs := PullSegmentsByShardsArgs{Segments: requestedSegments, Shards: shardsToRecover}
 				pullSegmentsByShardsReply := PullSegmentsByShardsReply{}
-				successful := call(server, "PBServer.PullSegmentsByShards", pullSegmentsByShardsArgs, &pullSegmentsByShardsReply)
+				successful := call(server, "PBServer.PullSegmentsByShards", pb.networkMode, pullSegmentsByShardsArgs, &pullSegmentsByShardsReply)
 
 				// grab the queryLock around the entire decision phase
 				queryLock.Lock()
@@ -1047,7 +1036,7 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 
 						recoveryCompletedArgs := RecoveryCompletedArgs{ServerName: pb.me, ShardRecovered: completedShard}
 						recoveryCompletedReply := RecoveryCompletedReply{}
-						recoveryCompleted = call(pb.clerk.GetServerName(), "ViewServer.RecoveryCompleted", &recoveryCompletedArgs, &recoveryCompletedReply)
+						recoveryCompleted = call(pb.clerk.GetServerName(), "ViewServer.RecoveryCompleted", pb.networkMode, &recoveryCompletedArgs, &recoveryCompletedReply)
 
 					}
 
@@ -1124,7 +1113,7 @@ func StartMe(me string, viewServer string, networkMode string) *PBServer {
 
   pb.view = viewservice.View{}
 
-  pb.clerk = viewservice.MakeClerk(me, viewServer)
+  pb.clerk = viewservice.MakeClerk(me, viewServer, networkMode)
 
   // initialize main data structures
   pb.log = new(Log)
@@ -1138,8 +1127,6 @@ func StartMe(me string, viewServer string, networkMode string) *PBServer {
 
   pb.backups = map[int64]BackupGroup{}
 
-  pb.hosts = make([]string, 0)
-
   pb.networkMode = networkMode
 
   pb.serversAlive = map[string]bool{}
@@ -1147,11 +1134,16 @@ func StartMe(me string, viewServer string, networkMode string) *PBServer {
   rpcs := rpc.NewServer()
   rpcs.Register(pb)
 
+  hostname := pb.me
+
   if networkMode == "unix" {
-    os.Remove(pb.me)
+    os.Remove(hostname)
+  } else if networkMode == "tcp" {
+    arr := strings.Split(hostname, ":")
+    hostname = ":" + arr[1]
   }
 
-  l, e := net.Listen(networkMode, pb.me);
+  l, e := net.Listen(networkMode, hostname);
 
   if e != nil {
     log.Fatal("listen error: ", e);

@@ -27,21 +27,22 @@ type Clerk struct {
   me string      // client's name (host:port)
   server string  // viewservice's host:port
   view View
+  networkMode string
 }
 
 
-func MakeClerk(me string, server string) *Clerk {
+func MakeClerk(me string, server string, networkMode string) *Clerk {
   ck := new(Clerk)
   ck.me = me
   ck.server = server
   ck.view = View{}
+  ck.networkMode = networkMode
   return ck
 }
 
 
-func call(srv string, rpcname string,
-          args interface{}, reply interface{}) bool {
-  c, errx := rpc.Dial("unix", srv)
+func call(srv string, rpcname string, networkMode string, args interface{}, reply interface{}) bool {
+  c, errx := rpc.Dial(networkMode, srv)
   if errx != nil {
     return false
   }
@@ -67,7 +68,7 @@ func (ck *Clerk) Ping(viewnum uint) (View, map[string]bool, error) {
   var reply PingReply
 
   // send an RPC request, wait for the reply.
-  ok := call(ck.server, "ViewServer.Ping", args, &reply)
+  ok := call(ck.server, "ViewServer.Ping", ck.networkMode, args, &reply)
   if ok == false {
     ck.view = View{}
     return View{}, make(map[string]bool), fmt.Errorf("Ping(%v) failed", viewnum)
@@ -81,7 +82,7 @@ func (ck *Clerk) Ping(viewnum uint) (View, map[string]bool, error) {
 func (ck *Clerk) Get() (View, bool) {
   args := &GetArgs{}
   var reply GetReply
-  ok := call(ck.server, "ViewServer.Get", args, &reply)
+  ok := call(ck.server, "ViewServer.Get", ck.networkMode, args, &reply)
 
   if ok == false {
     return View{}, false

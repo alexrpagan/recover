@@ -15,6 +15,7 @@ import "time"
 import "sync"
 import "fmt"
 import "os"
+import "strings"
 //import "math/rand"
 
 
@@ -62,12 +63,15 @@ func StartMe(me string, networkMode string) *ViewServer {
 	rpcs := rpc.NewServer()
 	rpcs.Register(vs)
 
-	// prepare to receive connections from clients.
+  	hostname := vs.me
 	if networkMode == "unix" {
-		os.Remove(vs.me)
-	}
+    	os.Remove(hostname)
+  	} else if networkMode == "tcp" {
+    	arr := strings.Split(hostname, ":")
+    	hostname = ":" + arr[1]
+  	}
 
-	l, e := net.Listen(networkMode, vs.me);
+	l, e := net.Listen(networkMode, hostname);
 
 	if e != nil {
 

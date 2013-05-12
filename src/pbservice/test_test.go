@@ -8,6 +8,7 @@ import (
   "fmt"
   "os"
   "strconv"
+  "math/rand"
 )
 
 func port(suffix string) string {
@@ -20,26 +21,49 @@ func port(suffix string) string {
   return s
 }
 
+func hostname(base string, hosts map[int]bool) string {
+  i := 0
+  for {
+    port := int(rand.Int63() % 10000)
+    if port > 1000 && !hosts[port] {
+      i = port
+      hosts[port] = true
+      break
+    }
+  }
+  return fmt.Sprintf("%s:%d", base, i)
+}
+
 
 func Test1(t *testing.T) {
-  runtime.GOMAXPROCS(8)
+  runtime.GOMAXPROCS(4)
 
-  vshost := port("v")
-  vs := viewservice.StartServer(vshost)
+  mode := "tcp"
+
+  localhost := "127.0.0.1"
+  names := make(map[int]bool)
+
+  // vshost := port("vs")
+  vshost := hostname(localhost, names)
+
+  vs := viewservice.StartMe(vshost, mode)
 
   numOfClients := 5
-  numOfServers := 6
+  numOfServers := 12
 
   clients := make([]*Clerk, numOfClients)
   servers := make([]*PBServer, numOfServers)
 
   for i:=0; i < numOfServers; i++ {
-    hostname := port(fmt.Sprintf("servers%d", i))
-    servers[i] = StartServer(hostname, vshost)
+    // hostname := port(fmt.Sprintf("server%d", i))
+    hostname := hostname(localhost, names)
+    servers[i] = StartMe(hostname, vshost, mode)
   }
 
   for i:=0; i < numOfClients; i++ {
-    clients[i] = MakeClerk(port(fmt.Sprintf("client%d", i)), vshost)
+    // hostname := port(fmt.Sprintf("client%d", i))
+    hostname := hostname(localhost, names)
+    clients[i] = MakeClerk(hostname, vshost, mode)
   }
 
   iters := 200
