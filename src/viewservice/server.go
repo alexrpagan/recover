@@ -15,7 +15,7 @@ import "time"
 import "sync"
 import "fmt"
 import "os"
-import "math/rand"
+//import "math/rand"
 
 
 /*
@@ -166,6 +166,7 @@ func (vs *ViewServer) Get(args *GetArgs, reply *GetReply) error {
 	vs.mu.Lock()
 	defer vs.mu.Unlock()
 
+
 	// reply with the current view
 	reply.View = vs.view
 
@@ -306,7 +307,7 @@ func (vs *ViewServer) tick() {
 
 // runs recovery for deadPrimaries
 func (vs *ViewServer) recover(deadPrimaries map[string] bool) {
-
+/*
 	// grab the vs lock until vs.serversAlive has been copied into a slice
 	vs.mu.Lock()
 
@@ -441,7 +442,7 @@ func (vs *ViewServer) recover(deadPrimaries map[string] bool) {
 		go call(recoveryMaster, "PBService.ElectRecoveryMaster", electRecoveryMasterArgs, &electRecoveryMasterReply)
 
 	}
-
+	*/
 }
 
 

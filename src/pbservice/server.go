@@ -16,6 +16,8 @@ import (
   "encoding/gob"
   "strconv"
   "viewservice"
+  "crypto/md5"
+  "io"
 )
 
 
@@ -44,6 +46,7 @@ type PBServer struct {
   dead bool // for testing
   unreliable bool // for testing
   me string
+  meHash string
 
   // TODO: reference to shardmaster
   clerk *viewservice.Clerk
@@ -71,6 +74,9 @@ type PBServer struct {
   // shim of live hosts
   hosts []string
 
+  // who's around?
+  serversAlive map[string]bool
+
   networkMode string
 
 }
@@ -86,7 +92,7 @@ type Request struct {
 // OPERATION
 
 type Op struct {
-//  Version VersionID
+  Version int64
   Client int64
   Request int64
   Type int // {GetOp, PutOp}
@@ -114,6 +120,8 @@ type Log struct {
 }
 
 func (l *Log) init() {
+  l.Segments = make(map[int64]*Segment)
+
   seg := new(Segment)
   seg.Size = 0
   seg.Active = true
@@ -131,10 +139,12 @@ func (l *Log) getCurrSegment() (seg *Segment, ok bool) {
 
 func (l *Log) newSegment() *Segment {
   prevSegment, _ := l.getCurrSegment()
+
   seg := new(Segment)
   seg.Size = 0
   seg.Active = true
   seg.ID = l.CurrSegID + 1
+  seg.Ops = make([]Op, 0)
 
   seg.Digest = append(prevSegment.Digest, prevSegment.ID)
 
@@ -238,16 +248,19 @@ func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
 
 func (pb *PBServer) Put(args *PutArgs, reply *PutReply) error {
   pb.mu.Lock()
-  defer pb.mu.Unlock()
-
   seg, _ := pb.log.getCurrSegment()
   group, ok := pb.backups[seg.ID]
 
   if ! ok {
     if pb.enlistReplicas(*seg) == false {
-      panic("could not enlist enough replicas")
+      fmt.Println("couldn't enlist enough replicas")
+      reply.Err = ErrBackupFailure
+      return nil
+    } else {
+      group = pb.backups[seg.ID]
     }
   }
+  pb.mu.Unlock()
 
   // create operation
   putOp := new(Op)
@@ -258,30 +271,41 @@ func (pb *PBServer) Put(args *PutArgs, reply *PutReply) error {
   putOp.Value = args.Value
 
   shard := key2shard(putOp.Key)
-  // CHECK: am I the primary for this key
   if shard > 0 && false {
     reply.Err = ErrWrongServer
     return nil
   }
 
+  flushed := false
+
+  pb.mu.Lock()
   if seg.append(*putOp) == false {
-    delete(pb.backups, seg.ID)
+    flushed = true
     if pb.broadcastFlush(seg.ID, group) {
       seg = pb.log.newSegment()
       seg.append(*putOp)
       if pb.enlistReplicas(*seg) == false {
-        panic("could not enlist enough replicas")
+        fmt.Println("couldn't enlist enough replicas")
+        reply.Err = ErrBackupFailure
+        return nil
+      } else {
+        group = pb.backups[seg.ID]
       }
     } else {
-      panic("backup failure on flush")
+      fmt.Println("backup failure on flush")
+      reply.Err = ErrBackupFailure
+      return nil
     }
   }
 
-  if pb.broadcastForward(*putOp, seg.ID, group) {
+  if flushed || pb.broadcastForward(*putOp, seg.ID, group) {
     pb.store[args.Key] = putOp
   } else {
-    panic("backup failure on fwd")
+    fmt.Println("backup failure on fwd")
+    reply.Err = ErrBackupFailure
+    return nil
   }
+  pb.mu.Unlock()
 
   reply.Err = OK
   return nil
@@ -318,21 +342,29 @@ func (pb *PBServer) checkPrimary(server string, segment int64, key string) Err {
 
 func (pb *PBServer) enlistReplicas(segment Segment) bool {
 
-  port := strconv.Itoa(SrvPort)
-
   hostsNeeded := RepLevel
-  numHosts    := len(pb.hosts)
 
   availHosts := map[string]bool{}
   enlisted   := map[string]bool{}
 
-  for i := 0; i < numHosts; i++ {
-    availHosts[pb.hosts[i]] = true
+  for srv, alive := range pb.serversAlive {
+    if alive {
+      availHosts[srv] = alive
+    }
   }
+
+  delete(availHosts, pb.me)
+
+  numHosts  := len(availHosts)
 
   enlistArgs := new(EnlistReplicaArgs)
   enlistArgs.Origin = pb.me
   enlistArgs.Segment = segment
+
+  if numHosts < hostsNeeded {
+    fmt.Println("Not enough hosts", numHosts, hostsNeeded, pb.serversAlive)
+    return false
+  }
 
   for {
 
@@ -356,12 +388,12 @@ func (pb *PBServer) enlistReplicas(segment Segment) bool {
 
     // for each guy who hasn't acked
     for i := 0 ; i < hostsNeeded; i++ {
-      host := candidates[replicaIdxs[i]-1]
+      host := candidates[replicaIdxs[i]]
       if (acks[i] == false) {
         wg.Add(1)
         go func(i int, backup string) {
           enlistReply := new(EnlistReplicaReply)
-          enlistAck   := call(backup + ":" + port, "PBServer.EnlistReplica", enlistArgs, enlistReply)
+          enlistAck   := call(backup, "PBServer.EnlistReplica", enlistArgs, enlistReply)
           replies[i] = enlistReply
           acks[i]    = enlistAck
           wg.Done()
@@ -371,7 +403,7 @@ func (pb *PBServer) enlistReplicas(segment Segment) bool {
     wg.Wait()
 
     for idx, ack := range acks {
-      host := candidates[replicaIdxs[idx]-1]
+      host := candidates[replicaIdxs[idx]]
       if ack == false {
         // TODO: what the hell do we do here?
       } else {
@@ -386,7 +418,7 @@ func (pb *PBServer) enlistReplicas(segment Segment) bool {
       }
     }
 
-    if hostsNeeded != 0 {
+    if hostsNeeded == 0 {
 
       bg := new(BackupGroup)
       i := 0
@@ -396,7 +428,6 @@ func (pb *PBServer) enlistReplicas(segment Segment) bool {
         i++
       }
       pb.backups[segment.ID] = *bg
-
       return true
     }
 
@@ -415,6 +446,7 @@ func (pb *PBServer) EnlistReplica(args *EnlistReplicaArgs, reply *EnlistReplicaR
   defer pb.mu.Unlock()
 
   segs, ok := pb.backedUpSegs[args.Origin]
+
   if ! ok {
     segs = map[int64]bool{}
   }
@@ -452,12 +484,17 @@ func (pb *PBServer) FlushSeg(args *FlushSegArgs, reply *FlushSegReply) error {
 
   // write segment to disk in the background
   go func() {
-    dirpath := path.Join(SegPath, args.Origin)
+
+    dirpath := path.Join(SegPath, pb.meHash)
     os.Mkdir(dirpath, 0777)
+
+    dirpath = path.Join(dirpath, pb.md5Digest(args.Origin))
+    os.Mkdir(dirpath, 0777)
+
     seg.burp(path.Join(dirpath, strconv.Itoa(int(seg.ID))))
+
   }()
 
-  // no longer need this segment... will this cause problems?
   delete(pb.buffers, args.Origin)
 
   reply.Err = OK
@@ -478,6 +515,7 @@ func (pb *PBServer) ForwardOp(args *ForwardOpArgs, reply *ForwardOpReply) error 
   res := seg.append(args.Op)
 
   if res == false {
+    fmt.Printf("Segment %d %v\n", args.Segment, seg)
     panic("buffer size exceeded in replica. should never happen.")
   }
 
@@ -487,8 +525,6 @@ func (pb *PBServer) ForwardOp(args *ForwardOpArgs, reply *ForwardOpReply) error 
 
 
 func (pb *PBServer) broadcastForward(op Op, segment int64, group BackupGroup) bool {
-
-  port := strconv.Itoa(SrvPort)
 
   numOfBackups := len(group.Backups)
 
@@ -513,7 +549,7 @@ func (pb *PBServer) broadcastForward(op Op, segment int64, group BackupGroup) bo
         wg.Add(1)
         go func(idx int, backup string) {
           fwdReply := new(ForwardOpReply)
-          ack := call(backup + ":" + port, "PBServer.ForwardOp", fwdArgs, fwdReply)
+          ack := call(backup, "PBServer.ForwardOp", fwdArgs, fwdReply)
           replies[idx] = fwdReply
           acks[idx]    = ack
           wg.Done()
@@ -556,8 +592,6 @@ func (pb *PBServer) broadcastForward(op Op, segment int64, group BackupGroup) bo
 
 func (pb *PBServer) broadcastFlush(segment int64, group BackupGroup) bool {
 
-  port := strconv.Itoa(SrvPort)
-
   replies := make([]*FlushSegReply, len(group.Backups))
   acks    := make([]bool, len(group.Backups))
 
@@ -577,7 +611,7 @@ func (pb *PBServer) broadcastFlush(segment int64, group BackupGroup) bool {
         count += 1
         go func(idx int, backup string) {
           flshReply := new(FlushSegReply)
-          ack := call(backup + ":" + port, "PBServer.FlushSeg", flshArgs, flshReply)
+          ack := call(backup, "PBServer.FlushSeg", flshArgs, flshReply)
           replies[idx] = flshReply
           acks[idx] = ack
         }(idx, backup)
@@ -620,12 +654,11 @@ func (pb *PBServer) tick() {
   pb.mu.Lock()
   defer pb.mu.Unlock()
 
-  fmt.Println("Ping")
+	view, serversAlive, err := pb.clerk.Ping(pb.view.ViewNumber)
 
-	view, _, err := pb.clerk.Ping(pb.view.ViewNumber)
-
-  if err != nil {
+  if err == nil {
     pb.view = view
+    pb.serversAlive = serversAlive
   }
 
 }
@@ -677,7 +710,6 @@ func (pb *PBServer) TestReadSegment(args *TestReadSegmentArgs, reply *TestReadSe
 
 func (pb *PBServer) TestPullSegments(args *TestPullSegmentsArgs, reply *TestPullSegmentsReply) error {
   var wg sync.WaitGroup
-  port := strconv.Itoa(SrvPort)
   t1 := time.Now().UnixNano()
 
   for _, host := range args.Hosts {
@@ -691,7 +723,7 @@ func (pb *PBServer) TestPullSegments(args *TestPullSegmentsArgs, reply *TestPull
         sendreply := new(PullSegmentsReply)
         sendargs.Segments = make([]int64, 1)
         sendargs.Segments[0] = int64(rand.Int63() % 30)
-        ok := call(host + ":" + port, "PBServer.PullSegments", sendargs, sendreply)
+        ok := call(host, "PBServer.PullSegments", sendargs, sendreply)
         if ok {
           fmt.Println("segment from", host)
         }
@@ -708,103 +740,7 @@ func (pb *PBServer) TestPullSegments(args *TestPullSegmentsArgs, reply *TestPull
 
 
 
-// tell the server to shut itself down.
-// please do not change this function.
-func (pb *PBServer) kill() {
-  pb.dead = true
-  pb.l.Close()
-}
 
-func StartServer(me string, viewServer string) *PBServer {
-  return StartMe(me, viewServer, "unix")
-}
-
-func StartMe(me string, viewServer string, networkMode string) *PBServer {
-
-  pb := new(PBServer)
-  pb.me = me
-
-  pb.view = viewservice.View{}
-
-  pb.clerk = viewservice.MakeClerk(me, viewServer)
-
-  // initialize main data structures
-  pb.log = new(Log)
-
-  pb.store = map[string]*Op{}
-
-  pb.buffers = map[string]*Segment{}
-
-  pb.backedUpSegs = map[string]map[int64]bool{}
-
-  pb.backups = map[int64]BackupGroup{}
-
-  pb.networkMode = networkMode
-
-  rpcs := rpc.NewServer()
-  rpcs.Register(pb)
-
-  if networkMode == "unix" {
-    os.Remove(pb.me)
-  }
-
-  l, e := net.Listen(networkMode, pb.me);
-
-  if e != nil {
-    log.Fatal("listen error: ", e);
-  }
-  pb.l = l
-
-  // please do not change any of the following code,
-  // or do anything to subvert it.
-
-  go func() {
-    for pb.dead == false {
-      conn, err := pb.l.Accept()
-      if err == nil && pb.dead == false {
-
-        // deaf!
-        if pb.unreliable && (rand.Int63() % 1000) < 100 {
-          // discard the request.
-          conn.Close()
-
-        // mute!
-        } else if pb.unreliable && (rand.Int63() % 1000) < 200 {
-          // process the request but force discard of reply.
-          c1 := conn.(*net.UnixConn)
-          f, _ := c1.File()
-          err := syscall.Shutdown(int(f.Fd()), syscall.SHUT_WR)
-          if err != nil {
-            fmt.Printf("shutdown: %v\n", err)
-          }
-          go rpcs.ServeConn(conn)
-
-        // healthy!
-        } else {
-          go rpcs.ServeConn(conn)
-        }
-
-      } else if err == nil {
-        conn.Close()
-      }
-
-      if err != nil && pb.dead == false {
-        fmt.Printf("PBServer(%v) accept: %v\n", me, err.Error())
-        pb.kill()
-      }
-    }
-  }()
-
-  go func() {
-    for pb.dead == false {
-      pb.tick()
-      time.Sleep(100 * time.Millisecond)
-      //time.Sleep(viewservice.PingInterval)
-    }
-  }()
-
-  return pb
-}
 
 
 // local version of PullSegments for use in QuerySegments
@@ -1154,4 +1090,121 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 
 	return nil
 
+}
+
+
+func (pb *PBServer) md5Digest(name string) string {
+  // hash host to make directory name
+  h1 := md5.New()
+  io.WriteString(h1, name)
+  return fmt.Sprintf("%x", h1.Sum([]byte{}))
+}
+
+// tell the server to shut itself down.
+// please do not change this function.
+func (pb *PBServer) kill() {
+  pb.dead = true
+  pb.l.Close()
+}
+
+func StartServer(me string, viewServer string) *PBServer {
+  return StartMe(me, viewServer, "unix")
+}
+
+func StartMe(me string, viewServer string, networkMode string) *PBServer {
+
+  pb := new(PBServer)
+
+  pb.me = me
+
+  pb.meHash = pb.md5Digest(me)
+
+  os.RemoveAll(path.Join(SegPath, pb.meHash))
+  os.Mkdir(SegPath, 0777)
+
+  pb.view = viewservice.View{}
+
+  pb.clerk = viewservice.MakeClerk(me, viewServer)
+
+  // initialize main data structures
+  pb.log = new(Log)
+  pb.log.init()
+
+  pb.store = map[string]*Op{}
+
+  pb.buffers = map[string]*Segment{}
+
+  pb.backedUpSegs = map[string]map[int64]bool{}
+
+  pb.backups = map[int64]BackupGroup{}
+
+  pb.hosts = make([]string, 0)
+
+  pb.networkMode = networkMode
+
+  pb.serversAlive = map[string]bool{}
+
+  rpcs := rpc.NewServer()
+  rpcs.Register(pb)
+
+  if networkMode == "unix" {
+    os.Remove(pb.me)
+  }
+
+  l, e := net.Listen(networkMode, pb.me);
+
+  if e != nil {
+    log.Fatal("listen error: ", e);
+  }
+  pb.l = l
+
+  // please do not change any of the following code,
+  // or do anything to subvert it.
+
+  go func() {
+    for pb.dead == false {
+      conn, err := pb.l.Accept()
+      if err == nil && pb.dead == false {
+
+        // deaf!
+        if pb.unreliable && (rand.Int63() % 1000) < 100 {
+          // discard the request.
+          conn.Close()
+
+        // mute!
+        } else if pb.unreliable && (rand.Int63() % 1000) < 200 {
+          // process the request but force discard of reply.
+          c1 := conn.(*net.UnixConn)
+          f, _ := c1.File()
+          err := syscall.Shutdown(int(f.Fd()), syscall.SHUT_WR)
+          if err != nil {
+            fmt.Printf("shutdown: %v\n", err)
+          }
+          go rpcs.ServeConn(conn)
+
+        // healthy!
+        } else {
+          go rpcs.ServeConn(conn)
+        }
+
+      } else if err == nil {
+        conn.Close()
+      }
+
+      if err != nil && pb.dead == false {
+        fmt.Printf("PBServer(%v) accept: %v\n", me, err.Error())
+        pb.kill()
+      }
+    }
+  }()
+
+  go func() {
+    for pb.dead == false {
+      pb.tick()
+      time.Sleep(100 * time.Millisecond)
+      //time.Sleep(viewservice.PingInterval)
+    }
+  }()
+
+  return pb
 }

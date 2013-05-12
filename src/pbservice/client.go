@@ -24,7 +24,7 @@ type Clerk struct {
 
 
 // makes a new clerk for the pbservice which encapsulates a viewservice clerk
-func MakeClerk(vshost string, me string) *Clerk {
+func MakeClerk(me string, vshost string) *Clerk {
   ck := new(Clerk)
   ck.vs = viewservice.MakeClerk(me, vshost)
   return ck
@@ -34,7 +34,7 @@ func MakeClerk(vshost string, me string) *Clerk {
 // sends an RPC
 func call(srv string, rpcname string,
           args interface{}, reply interface{}) bool {
-  c, errx := rpc.Dial("tcp", srv)
+  c, errx := rpc.Dial("unix", srv)
   if errx != nil {
     fmt.Println(errx)
     return false
@@ -69,6 +69,7 @@ func (ck *Clerk) Get(key string) string {
       ack := call(primary, "PBServer.Get", args, &reply)
       if ack { break }
     }
+    ck.updateView()
     time.Sleep(viewservice.PING_INTERVAL)
   }
 
@@ -106,6 +107,7 @@ func (ck *Clerk) Put(key string, value string) {
       ack := call(primary, "PBServer.Put", args, &reply)
       if ack { break }
     }
+    ck.updateView()
     time.Sleep(viewservice.PING_INTERVAL)
   }
 

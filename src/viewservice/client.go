@@ -82,6 +82,7 @@ func (ck *Clerk) Get() (View, bool) {
   args := &GetArgs{}
   var reply GetReply
   ok := call(ck.server, "ViewServer.Get", args, &reply)
+
   if ok == false {
     return View{}, false
   }
