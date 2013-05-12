@@ -300,13 +300,13 @@ func (vs *ViewServer) tick() {
 	}
 
 	// launch recovery for all dead primaries
-	go vs.Recover(deadServers, shardsToRecover)
+	go vs.recover(deadServers, shardsToRecover)
 
 }
 
 
 // runs recovery for deadPrimaries and shardsToRecover
-func (vs *ViewServer) Recover(deadPrimaries map[string] bool, shardsToRecover map[int] bool) {
+func (vs *ViewServer) recover(deadPrimaries map[string] bool, shardsToRecover map[int] bool) {
 
 	// grab the vs lock until vs.serversAlive has been copied into a slice
 	vs.mu.Lock()

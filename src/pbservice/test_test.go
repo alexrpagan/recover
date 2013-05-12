@@ -1,38 +1,48 @@
 package pbservice
-/*
-import "fmt"
-import "io"
-import "net"
-import "testing"
-import "time"
-import "log"
-import "runtime"
-import "math/rand"
-import "os"
-import "strconv"
 
-func check(ck *Clerk, key string, value string) {
-  v := ck.Get(key)
-  if v != value {
-    log.Fatalf("Get(%v) -> %v, expected %v", key, v, value)
-  }
-}
+import (
+  "viewservice"
+  "testing"
+  "runtime"
+  "time"
+  "fmt"
+  "os"
+  "strconv"
+)
 
-func port(tag string, host int) string {
+func port(suffix string) string {
   s := "/var/tmp/824-"
   s += strconv.Itoa(os.Getuid()) + "/"
   os.Mkdir(s, 0777)
-  s += "pb-"
+  s += "viewserver-"
   s += strconv.Itoa(os.Getpid()) + "-"
-  s += tag + "-"
-  s += strconv.Itoa(host)
+  s += suffix
   return s
 }
 
+func Test1(t *testing.T) {
+  runtime.GOMAXPROCS(4)
 
-func TestBasicFail(t *testing.T) {
-  runtime.GOMAXPROCS(8)
+  vshost := port("v")
+  vs := viewservice.StartServer(vshost)
+
+  numOfClients := 5
+  numOfServers := 10
+
+  clients := make([]*Clerk, numOfClients)
+  servers := make([]*PBServer, numOfServers)
+
+  for i:=0; i < numOfServers; i++ {
+    hostname := port(fmt.Sprintf("client%d", i))
+    servers[i] = StartServer(hostname, vshost)
+  }
+
+  for i:=0; i < numOfClients; i++ {
+    clients[i] = MakeClerk(port(fmt.Sprintf("client%d", i)), vshost)
+  }
+
+  time.Sleep(1 * time.Second)
+
+  vs.Kill()
 
 }
-
-*/

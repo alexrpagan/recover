@@ -60,7 +60,7 @@ func (ck *Clerk) GetServerName() string {
 }
 
 
-func (ck *Clerk) Ping(viewnum uint) (View, error) {
+func (ck *Clerk) Ping(viewnum uint) (View, map[string]bool, error) {
   // prepare the arguments.
   args := &PingArgs{}
   args.ServerName = ck.me
@@ -70,11 +70,11 @@ func (ck *Clerk) Ping(viewnum uint) (View, error) {
   ok := call(ck.server, "ViewServer.Ping", args, &reply)
   if ok == false {
     ck.view = View{}
-    return View{}, fmt.Errorf("Ping(%v) failed", viewnum)
+    return View{}, make(map[string]bool), fmt.Errorf("Ping(%v) failed", viewnum)
   }
 
   ck.view = reply.View
-  return reply.View, nil
+  return reply.View, reply.ServersAlive, nil
 }
 
 

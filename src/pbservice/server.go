@@ -617,8 +617,12 @@ func (pb *PBServer) broadcastFlush(segment int64, group BackupGroup) bool {
 
 
 func (pb *PBServer) tick() {
+  pb.mu.Lock()
+  defer pb.mu.Unlock()
 
-	view, err := pb.clerk.Ping(pb.view.ViewNumber)
+  fmt.Println("Ping")
+
+	view, _, err := pb.clerk.Ping(pb.view.ViewNumber)
 
   if err != nil {
     pb.view = view
@@ -804,7 +808,7 @@ func StartMe(me string, viewServer string, networkMode string) *PBServer {
 
 
 // local version of PullSegments for use in QuerySegments
-func (pb *PBServer) PullSegmentLocal(segmentID int64) Segment {
+func (pb *PBServer) pullSegmentLocal(segmentID int64) Segment {
   segment := Segment{}
   fname := strconv.Itoa(int(segmentID))
   segment.slurp(path.Join(SegPath, fname))
@@ -823,7 +827,7 @@ func (pb *PBServer) QuerySegments(args *QuerySegmentsArgs, reply *QuerySegmentsR
 
 		for segmentID, _ := range pb.backedUpSegs[deadPrimary] {
 
-			segment := pb.PullSegmentLocal(segmentID)
+			segment := pb.pullSegmentLocal(segmentID)
 
 			for _, op := range segment.Ops {
 

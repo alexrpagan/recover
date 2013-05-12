@@ -24,7 +24,7 @@ func port(suffix string) string {
   s := "/var/tmp/824-"
   s += strconv.Itoa(os.Getuid()) + "/"
   os.Mkdir(s, 0777)
-  s += "viewserver-" 
+  s += "viewserver-"
   s += strconv.Itoa(os.Getpid()) + "-"
   s += suffix
   return s
@@ -58,7 +58,7 @@ func Test1(t *testing.T) {
       var num uint
       num = 0
       for {
-        view,_ := ck[vi].Ping(num)
+        view,_,_ := ck[vi].Ping(num)
 	num = view.ViewNumber
       	time.Sleep(PING_INTERVAL)
       }
@@ -68,7 +68,7 @@ func Test1(t *testing.T) {
       var num uint
       num = 0
       for j := 0; j< DEAD_PINGS * 3; j++ {
-        view,_ := ck[len(ck)-2].Ping(num)
+        view,_,_ := ck[len(ck)-2].Ping(num)
 	num = view.ViewNumber
       time.Sleep(PING_INTERVAL)
       }
@@ -77,7 +77,7 @@ func Test1(t *testing.T) {
       var num uint
       num = 0
       for j := 0; j< DEAD_PINGS * 10; j++ {
-        view,_ := ck[len(ck)-3].Ping(num)
+        view,_,_ := ck[len(ck)-3].Ping(num)
 	num = view.ViewNumber
       	time.Sleep(PING_INTERVAL)
       }
@@ -95,7 +95,7 @@ func Test1(t *testing.T) {
          break
        }
      }
-  }   
+  }
 //  fmt.Printf("shardstoprimaries %v\n", ck[0].view.ShardsToPrimaries)
   fmt.Printf("shardplacement %v\n",shardplacement)
   fmt.Printf("  ... Passed\n")
@@ -113,7 +113,7 @@ func Test1(t *testing.T) {
          break
        }
      }
-  }   
+  }
 //  fmt.Printf("shardstoprimaries %v\n", ck[0].view.ShardsToPrimaries)
   fmt.Printf("shardplacement %v\n",shardplacement)
   fmt.Printf("  ... Passed\n")
@@ -124,7 +124,7 @@ func Test1(t *testing.T) {
       var num uint
       num = 0
       for {
-        view,_ := ck[vi].Ping(num)
+        view,_,_ := ck[vi].Ping(num)
 	num = view.ViewNumber
       	time.Sleep(PING_INTERVAL)
       }
@@ -140,7 +140,7 @@ func Test1(t *testing.T) {
          break
        }
      }
-  }   
+  }
 //  fmt.Printf("shardstoprimaries %v\n", ck[0].view.ShardsToPrimaries)
   fmt.Printf("shardplacement %v\n",shardplacement)
 
@@ -149,7 +149,7 @@ func Test1(t *testing.T) {
   fmt.Printf("Test: One Stops Pinging with Two Empty\n")
   //view =ck[1].view
   time.Sleep(PING_INTERVAL*DEAD_PINGS*10)
-  
+
   check(t, ck[1],ck[0].view.ShardsToPrimaries, 3)
   shardplacement = make([]int, len(ck))
   for _,p := range ck[0].view.ShardsToPrimaries{
@@ -159,7 +159,7 @@ func Test1(t *testing.T) {
          break
        }
      }
-  }   
+  }
 //  fmt.Printf("shardstoprimaries %v\n", ck[0].view.ShardsToPrimaries)
   fmt.Printf("shardplacement %v\n",shardplacement)
   fmt.Printf("  ... Passed\n")
@@ -265,7 +265,7 @@ func Test1(t *testing.T) {
     }
   }
   fmt.Printf("  ... Passed\n")
-  
+
 
   // set up a view with just 3 as primary,
   // to prepare for the next test.
@@ -284,7 +284,7 @@ func Test1(t *testing.T) {
   // does viewserver wait for ack of previous view before
   // starting the next one?
   fmt.Printf("Test: Viewserver waits for primary to ack view ...\n")
-  
+
   {
     // set up p=ck[3] b=ck[1], but
     // but do not ack
