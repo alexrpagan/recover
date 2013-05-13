@@ -73,12 +73,12 @@ func Test1(t *testing.T) {
 
   fmt.Println("sending out some puts")
 
-  iters := 3000
+  iters := 100
 
   times := make([]int64, iters)
 
   var buffer bytes.Buffer
-  for i:=0; i < 8 * 10 ; i++ {
+  for i:=0; i < 8 * 1024 ; i++ {
     buffer.WriteString("a")
   }
   valbase := buffer.String()
@@ -111,7 +111,7 @@ func Test1(t *testing.T) {
   // single failure
   servers[1].kill()
 
-  time.Sleep(10 * time.Second)
+  time.Sleep(50 * time.Second)
 
   vs.Kill()
 

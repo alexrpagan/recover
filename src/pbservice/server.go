@@ -29,7 +29,7 @@ const (
 )
 
 // max number of bytes allowed for a segment.
-const SegLimit = 8 * 1024 * 100
+const SegLimit = 8 * 1024 * 1024
 
 // replication level for cluster
 const RepLevel = 3
@@ -115,13 +115,15 @@ func (op Op) Equals (diffOp Op) bool {
 // LOG
 
 type Log struct {
-  // TODO: only need to use a map if the int64s are non-sequential, right?
   Segments map[int64]*Segment
   CurrSegID int64
+  CurrOpID int64
 }
 
 func (l *Log) init() {
   l.Segments = make(map[int64]*Segment)
+
+  l.CurrOpID = int64(0)
 
   seg := new(Segment)
   seg.Size = 0
@@ -200,8 +202,7 @@ func (s *Segment) slurp (fromFile string) {
 
 // BACKUP GROUP INFO
 type BackupGroup struct {
-  Backups  [RepLevel] string
-  Liveness [RepLevel] bool
+  Backups  []string
 }
 
 
@@ -271,6 +272,13 @@ func (pb *PBServer) Put(args *PutArgs, reply *PutReply) error {
   seg, _ := pb.log.getCurrSegment()
   group, ok := pb.backups[seg.ID]
 
+  for idx, server := range group.Backups {
+    if pb.serversAlive[server] == false {
+      fmt.Println("Removing failed backup ", server)
+      group.Backups = append(group.Backups[:idx], group.Backups[idx+1:]...)
+    }
+  }
+
   if ! ok {
     if pb.enlistReplicas(*seg) == false {
       fmt.Println("couldn't enlist enough replicas")
@@ -281,6 +289,9 @@ func (pb *PBServer) Put(args *PutArgs, reply *PutReply) error {
     }
   }
 
+  // advance opcount.
+  pb.log.CurrOpID++
+
   // create operation
   putOp := new(Op)
   putOp.Client = args.Client
@@ -288,6 +299,7 @@ func (pb *PBServer) Put(args *PutArgs, reply *PutReply) error {
   putOp.Type = PutOp
   putOp.Key = args.Key
   putOp.Value = args.Value
+  putOp.Version = pb.log.CurrOpID
 
   shard := key2shard(putOp.Key)
   if shard > 0 && false {
@@ -430,13 +442,15 @@ func (pb *PBServer) enlistReplicas(segment Segment) bool {
     if hostsNeeded == 0 {
 
       bg := new(BackupGroup)
+      bg.Backups = make([]string, RepLevel)
+
       i := 0
       for k, _ := range enlisted {
         bg.Backups[i]  = k
-        bg.Liveness[i] = true
         i++
       }
       pb.backups[segment.ID] = *bg
+
       return true
     }
 
@@ -835,6 +849,7 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 
   var recoveryMu sync.Mutex
 
+  // which shards are we interested in for this recovery
   shards := make(map[int]bool)
   for shard, _ := range recoveryData {
     shards[shard] = true
@@ -843,7 +858,6 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
   fmt.Println(recoveryData)
 
   for {
-
 
     for shard, segsToBackups := range recoveryData {  // for each shard that we're tasked with recovering
 
@@ -888,6 +902,7 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
             ok1 := call(backup, "PBServer.PullSegmentsByShards", pb.networkMode, pullSegmentsArgs, pullSegmentsReply)
 
             if ok1 {
+
               recoveryMu.Lock()
               // fmt.Printf("%s recovered segment %d from %s for %s:%d \n", pb.me, seg, backup, mainPrimary, shard)
               recovered := pullSegmentsReply.Segments[0]
@@ -896,13 +911,61 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
               recoveryMu.Unlock()
 
               pb.mu.Lock()
-              fmt.Println("Reading ops: ", shard, seg)
-              for _, op := range recovered.Ops {
-                fmt.Println(pb.me, seg, shard, op.Key)
+              for _, newOp := range recovered.Ops {
+
+                fmt.Println("processing op ", pb.me)
+
+                op := newOp
+
+                maxOpID := pb.log.CurrOpID
+                currOp, ok := pb.store[op.Key]
+
+                if ok {
+                  // if the version of the key in the data store is more up-to-date,
+                  // don't bother processing the recovered operation.
+                  if currOp.Version > op.Version {
+                    continue
+                  }
+                }
+
+                // TODO: this is probably wrong. fix.
+
+                // update primary's clock
+                if maxOpID < op.Version {
+                  pb.log.CurrOpID = op.Version
+                } else {
+                  pb.log.CurrOpID++
+                  op.Version = pb.log.CurrOpID
+                }
+
+                seg, _ := pb.log.getCurrSegment()
+                group, ok := pb.backups[seg.ID]
+
+                // normal put codepath
+                flushed := false
+                if seg.append(op) == false {
+                  flushed = true
+                  if pb.broadcastFlush(seg.ID, group) {
+                    seg = pb.log.newSegment()
+                    seg.append(op)
+                    if pb.enlistReplicas(*seg) == false {
+                      fmt.Println("couldn't enlist enough replicas")
+                    } else {
+                      group = pb.backups[seg.ID]
+                    }
+                  } else {
+                    fmt.Println("backup failure on flush")
+                  }
+                }
+
+                if flushed || pb.broadcastForward(op, seg.ID, group) {
+                  pb.store[op.Key] = &op
+                } else {
+                  fmt.Println("backup failure on fwd")
+                }
               }
               pb.mu.Unlock()
 
-            } else {
             }
 
           }(seg, backup, shard)
@@ -1044,7 +1107,7 @@ func StartMe(me string, viewServer string, networkMode string) *PBServer {
 
       if err != nil && pb.dead == false {
         fmt.Printf("PBServer(%v) accept: %v\n", me, err.Error())
-        pb.kill()
+        //pb.kill()
       }
 
     }
