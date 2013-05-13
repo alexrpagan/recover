@@ -295,6 +295,7 @@ func (pb *PBServer) Put(args *PutArgs, reply *PutReply) error {
   flushed := false
 
   if seg.append(*putOp) == false {
+    fmt.Println("Flushing ", seg.ID, group)
     flushed = true
     if pb.broadcastFlush(seg.ID, group) {
       seg = pb.log.newSegment()
@@ -490,27 +491,36 @@ func (pb *PBServer) FlushSeg(args *FlushSegArgs, reply *FlushSegReply) error {
   defer pb.mu.Unlock()
 
   err := pb.checkPrimary(args.Origin, args.OldSegment, "")
+
   if err != OK {
     reply.Err = err
     return nil
   }
 
-  seg, _ := pb.buffers[args.Origin]
+  seg, ok := pb.buffers[args.Origin]
 
-  // write segment to disk in the background
-  go func() {
+  if ok {
+     // write segment to disk in the background
+    go func() {
 
-    dirpath := path.Join(SegPath, pb.meHash)
-    os.Mkdir(dirpath, 0777)
+      dirpath := path.Join(SegPath, pb.meHash)
+      os.Mkdir(dirpath, 0777)
 
-    dirpath = path.Join(dirpath, pb.md5Digest(args.Origin))
-    os.Mkdir(dirpath, 0777)
+      dirpath = path.Join(dirpath, pb.md5Digest(args.Origin))
+      os.Mkdir(dirpath, 0777)
 
-    seg.burp(path.Join(dirpath, strconv.Itoa(int(seg.ID))))
+      seg.burp(path.Join(dirpath, strconv.Itoa(int(seg.ID))))
 
-  }()
+    }()
 
-  delete(pb.buffers, args.Origin)
+    delete(pb.buffers, args.Origin)
+
+  } else {
+
+    fmt.Println("No buffer!")
+
+  }
+
 
   reply.Err = OK
   return nil
@@ -823,18 +833,22 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
     shards[shard] = true
   }
 
+  fmt.Println(recoveryData)
+
   for {
 
-    for shard, segsToBackups := range recoveryData {
 
-      for seg, backups := range segsToBackups {
+    for shard, segsToBackups := range recoveryData {  // for each shard that we're tasked with recovering
+
+      for seg, backups := range segsToBackups {  // and each log segment needed to recover that shard
 
         recoveryMu.Lock()
         _, recovered := segmentsRecovered[seg]
         recoveryTime, inProcess := segmentsInProcess[seg]
         recoveryMu.Unlock()
 
-        if (time.Since(recoveryTime) >= 10 * time.Second || ! inProcess) && ! recovered {
+        // ten second timeout on single shard.
+        if (!inProcess || time.Since(recoveryTime) >= 10 * time.Second) && !recovered {
 
           recoveryMu.Lock()
           segmentsInProcess[seg] = time.Now()
@@ -863,14 +877,21 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 
             pullSegmentsReply := new(PullSegmentsByShardsReply)
 
+            fmt.Printf("Attempting: %s recovering segment %d from %s for %s:%d \n", pb.me, seg, backup, mainPrimary, shard)
             ok1 := call(backup, "PBServer.PullSegmentsByShards", pb.networkMode, pullSegmentsArgs, pullSegmentsReply)
 
             if ok1 {
               recoveryMu.Lock()
-              fmt.Printf("%s recovered segment %d from %s \n", pb.me, seg, backup)
-              segmentsRecovered[seg] = &Segment{}
+              fmt.Printf("%s recovered segment %d from %s for %s:%d \n", pb.me, seg, backup, mainPrimary, shard)
+              segmentsRecovered[seg] = &(pullSegmentsReply.Segments[0])
               delete(segmentsInProcess, seg)
               recoveryMu.Unlock()
+
+              pb.mu.Lock()
+              // todo: replay operations here.
+              pb.mu.Unlock()
+
+            } else {
             }
 
           }(seg, backup, shard)
@@ -879,15 +900,33 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 
       }
 
+      // have we seen all the segments that we need for a given shard?
+      seenAll := true
+      for seg, _ := range segsToBackups {
+        _, seen := segmentsRecovered[seg]
+        if ! seen {
+          seenAll = false
+          break
+        }
+      }
+
+      if seenAll {
+        delete(recoveryData, shard)
+        pb.clerk.RecoveryCompleted(pb.me, shard)
+      }
+
     }
 
-    if len(segmentsInProcess) == 0 {
+    if len(recoveryData) == 0 {
       return nil
     } else {
       time.Sleep(50 * time.Millisecond)
     }
 
   }
+
+
+
 
 	return nil
 }
@@ -998,6 +1037,7 @@ func StartMe(me string, viewServer string, networkMode string) *PBServer {
         fmt.Printf("PBServer(%v) accept: %v\n", me, err.Error())
         pb.kill()
       }
+
     }
   }()
 

@@ -37,7 +37,7 @@ func MakeClerk(me string, vshost string, networkMode string) *Clerk {
 func call(srv string, rpcname string, networkMode string, args interface{}, reply interface{}) bool {
   c, errx := rpc.Dial(networkMode, srv)
   if errx != nil {
-    fmt.Println(errx)
+    fmt.Println(rpcname, errx)
     return false
   }
   defer c.Close()

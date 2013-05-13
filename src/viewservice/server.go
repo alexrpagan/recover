@@ -7,15 +7,18 @@ Package and Imports
 
 package viewservice
 
+import (
+	"net"
+	"net/rpc"
+	"log"
+	"time"
+	"sync"
+	"fmt"
+	"os"
+	"strings"
+	"sort"
+)
 
-import "net"
-import "net/rpc"
-import "log"
-import "time"
-import "sync"
-import "fmt"
-import "os"
-import "strings"
 
 type ViewServer struct {
 
@@ -110,6 +113,7 @@ func (vs *ViewServer) tick() {
 	}
 
 	if ! vs.criticalMassReached {
+
 		if len(vs.serversAlive) >= CRITICAL_MASS {
 
 			for server, _ := range vs.serversAlive {
@@ -124,6 +128,8 @@ func (vs *ViewServer) tick() {
 				i++
 			}
 
+			sort.Strings(primaryServersSlice)
+
 			// create an initial view with shards distributed round-robin
 			vs.view = View{ViewNumber: 1, ShardsToPrimaries: make(map[int] string)}
 
@@ -133,6 +139,7 @@ func (vs *ViewServer) tick() {
 
 			vs.criticalMassReached = true
 		}
+
 		vs.mu.Unlock()
 		return
 	}
@@ -155,8 +162,8 @@ func (vs *ViewServer) tick() {
 // runs recovery for deadPrimaries
 func (vs *ViewServer) recover(deadPrimaries map[string][]int) {
 
-	// fmt.Println("Recovery initiated ", deadPrimaries)
-	// fmt.Println("")
+	fmt.Println("Recovery initiated ", deadPrimaries)
+	fmt.Println("")
 
 	vs.mu.Lock()
 	serversAliveCpy := make([]string, len(vs.serversAlive))
@@ -233,7 +240,13 @@ func (vs *ViewServer) recover(deadPrimaries map[string][]int) {
 	// recovery master host -> shards to recover
 	recoveryMasters := make(map[string][]int)
 
+	if len(serversAliveCpy) == 0 {
+		fmt.Println("No servers alive; nothing to do.")
+		return
+	}
+
 	for _, shards := range deadPrimaries {
+
 		for _, shard := range shards {
 
 			// round robin assignment to recovery masters
@@ -251,6 +264,7 @@ func (vs *ViewServer) recover(deadPrimaries map[string][]int) {
 
 			recoveryMasters[recoveryMaster] = append(recoveryMasters[recoveryMaster], shard)
 		}
+
 	}
 
 	// TODO: record recovery masters for in-progress recoveries.
@@ -279,6 +293,8 @@ func (vs *ViewServer) recover(deadPrimaries map[string][]int) {
 func (vs *ViewServer) RecoveryCompleted(args *RecoveryCompletedArgs, reply *RecoveryCompletedReply) error {
 	vs.mu.Lock()
 	defer vs.mu.Unlock()
+
+	fmt.Printf("Recovered shard %d from server %s \n", args.ShardRecovered, args.ServerName)
 
 	vs.view.ShardsToPrimaries[args.ShardRecovered] = args.ServerName
 	vs.view.ViewNumber++

@@ -9,6 +9,7 @@ import (
   "os"
   "strconv"
   "math/rand"
+  "bytes"
 )
 
 func port(suffix string) string {
@@ -38,14 +39,14 @@ func hostname(base string, hosts map[int]bool) string {
 func Test1(t *testing.T) {
   runtime.GOMAXPROCS(4)
 
-  mode := "unix"
-  // mode := "tcp"
+  // mode := "unix"
+  mode := "tcp"
 
-  // localhost := "127.0.0.1"
-  // names := make(map[int]bool)
+  localhost := "127.0.0.1"
+  names := make(map[int]bool)
 
-  vshost := port("vs")
-  // vshost := hostname(localhost, names)
+  // vshost := port("vs")
+  vshost := hostname(localhost, names)
 
   vs := viewservice.StartMe(vshost, mode)
 
@@ -56,32 +57,47 @@ func Test1(t *testing.T) {
   servers := make([]*PBServer, numOfServers)
 
   for i:=0; i < numOfServers; i++ {
-    hostname := port(fmt.Sprintf("server%d", i))
-    // hostname := hostname(localhost, names)
+    // hostname := port(fmt.Sprintf("server%d", i))
+    hostname := hostname(localhost, names)
     servers[i] = StartMe(hostname, vshost, mode)
   }
 
   for i:=0; i < numOfClients; i++ {
-    hostname := port(fmt.Sprintf("client%d", i))
-    // hostname := hostname(localhost, names)
+    // hostname := port(fmt.Sprintf("client%d", i))
+    hostname := hostname(localhost, names)
     clients[i] = MakeClerk(hostname, vshost, mode)
   }
 
-  iters := 300
+  // allow some time for critical mass to be reached
+  time.Sleep(1 * time.Second)
+
+  fmt.Println("sending out some puts")
+
+  iters := 1000
 
   times := make([]int64, iters)
 
-  //round of puts
-  for i:=0; i < iters; i++ {
-    go func(i int) {
-      valbase := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  var buffer bytes.Buffer
+  for i:=0; i < 8 * 1024 * 100; i++ {
+    buffer.WriteString("a")
+  }
+  valbase := buffer.String()
+
+  for round:=0; round < 1; round++ {
+    //round of puts
+    for i:=0; i < iters; i++ {
       t1 := time.Now().UnixNano()
-      clients[0].Put(fmt.Sprintf("%d", i % 10), fmt.Sprintf("%s%d",valbase, i))
+      clients[0].Put(fmt.Sprintf("%d", i % 10), fmt.Sprintf("%d%s",valbase, i % 10))
       t2 := time.Now().UnixNano()
       times[i] = t2-t1
-    }(i)
-    time.Sleep(10 * time.Millisecond)
+
+      if i % 100 == 0 {
+        fmt.Println("finished ", i)
+      }
+    }
+    time.Sleep(1 * time.Second)
   }
+
   printStats(times)
 
   // for i:=0; i < iters; i++ {
@@ -92,8 +108,8 @@ func Test1(t *testing.T) {
   // }
   // printStats(times)
 
+  // single failure
   servers[0].kill()
-  servers[3].kill()
 
   time.Sleep(10 * time.Second)
 

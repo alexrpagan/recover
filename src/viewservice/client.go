@@ -90,6 +90,22 @@ func (ck *Clerk) Get() (View, bool) {
   return reply.View, true
 }
 
+func (ck *Clerk) RecoveryCompleted(me string, shard int) bool {
+  args  := RecoveryCompletedArgs{}
+  args.ServerName = me
+  args.ShardRecovered = shard
+  reply := &RecoveryCompletedReply{}
+
+  ok := call(ck.server, "ViewServer.RecoveryCompleted", ck.networkMode, args, &reply)
+
+  // TODO: make sure that recovered primary is correct primary
+  if ok == false {
+    return false
+  }
+
+  return true
+}
+
 
 /*
 ********************
