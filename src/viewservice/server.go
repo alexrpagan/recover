@@ -155,8 +155,8 @@ func (vs *ViewServer) tick() {
 // runs recovery for deadPrimaries
 func (vs *ViewServer) recover(deadPrimaries map[string][]int) {
 
-	fmt.Println("Recovery initiated ", deadPrimaries)
-	fmt.Println("")
+	// fmt.Println("Recovery initiated ", deadPrimaries)
+	// fmt.Println("")
 
 	vs.mu.Lock()
 	serversAliveCpy := make([]string, len(vs.serversAlive))
@@ -193,9 +193,13 @@ func (vs *ViewServer) recover(deadPrimaries map[string][]int) {
 
 	// run through replies from potential backups and figure out what useful data each has
 	for i:=0; i < numLiveServers; i++ {
+
 		if acks[i] {
+
 			for _, segsToShards := range queryReplies[i].BackedUpSegments {
+
 				for segment, shards := range segsToShards {
+
 					for shard, _ := range shards {
 
 						// make sure that all levels of shrdToSegToSrv are init'd
@@ -210,10 +214,15 @@ func (vs *ViewServer) recover(deadPrimaries map[string][]int) {
 						}
 
 						shrdToSegToSrv[shard][segment] = append(shrdToSegToSrv[shard][segment], serversAliveCpy[i])
+
 					}
+
 				}
+
 			}
+
 		}
+
 	}
 
 	// TODO: check to make sure that list of shards is complete
@@ -246,14 +255,6 @@ func (vs *ViewServer) recover(deadPrimaries map[string][]int) {
 
 	// TODO: record recovery masters for in-progress recoveries.
 
-	// send out election notices
-
-	// fmt.Println(shrdToSegToSrv)
-	// fmt.Println("")
-
-	// fmt.Println(recoveryMasters)
-	// fmt.Println("")
-
 	for recoveryMaster, recoveryShards := range recoveryMasters {
 
 		// relevant subset of shrdToSegToSrv
@@ -265,6 +266,7 @@ func (vs *ViewServer) recover(deadPrimaries map[string][]int) {
 		electionArgs  := new(ElectRecoveryMasterArgs)
 		electionReply := new(ElectRecoveryMasterReply)
 		electionArgs.RecoveryData = recoveryData
+		electionArgs.DeadPrimaries = deadPrimaries
 
 		go call(recoveryMaster, "PBServer.ElectRecoveryMaster", vs.networkMode, electionArgs, electionReply)
 

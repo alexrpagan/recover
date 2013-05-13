@@ -38,13 +38,14 @@ func hostname(base string, hosts map[int]bool) string {
 func Test1(t *testing.T) {
   runtime.GOMAXPROCS(4)
 
-  mode := "tcp"
+  mode := "unix"
+  // mode := "tcp"
 
-  localhost := "127.0.0.1"
-  names := make(map[int]bool)
+  // localhost := "127.0.0.1"
+  // names := make(map[int]bool)
 
-  // vshost := port("vs")
-  vshost := hostname(localhost, names)
+  vshost := port("vs")
+  // vshost := hostname(localhost, names)
 
   vs := viewservice.StartMe(vshost, mode)
 
@@ -55,42 +56,46 @@ func Test1(t *testing.T) {
   servers := make([]*PBServer, numOfServers)
 
   for i:=0; i < numOfServers; i++ {
-    // hostname := port(fmt.Sprintf("server%d", i))
-    hostname := hostname(localhost, names)
+    hostname := port(fmt.Sprintf("server%d", i))
+    // hostname := hostname(localhost, names)
     servers[i] = StartMe(hostname, vshost, mode)
   }
 
   for i:=0; i < numOfClients; i++ {
-    // hostname := port(fmt.Sprintf("client%d", i))
-    hostname := hostname(localhost, names)
+    hostname := port(fmt.Sprintf("client%d", i))
+    // hostname := hostname(localhost, names)
     clients[i] = MakeClerk(hostname, vshost, mode)
   }
 
-  iters := 2000
+  iters := 300
 
   times := make([]int64, iters)
 
   //round of puts
   for i:=0; i < iters; i++ {
-    t1 := time.Now().UnixNano()
-    clients[0].Put(fmt.Sprintf("%d", i % 10), fmt.Sprintf("gibberish%d", i))
-    t2 := time.Now().UnixNano()
-    times[i] = t2-t1
+    go func(i int) {
+      valbase := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      t1 := time.Now().UnixNano()
+      clients[0].Put(fmt.Sprintf("%d", i % 10), fmt.Sprintf("%s%d",valbase, i))
+      t2 := time.Now().UnixNano()
+      times[i] = t2-t1
+    }(i)
+    time.Sleep(10 * time.Millisecond)
   }
   printStats(times)
 
-  for i:=0; i < iters; i++ {
-    t1 := time.Now().UnixNano()
-    clients[0].Get(fmt.Sprintf("%d", i % 10))
-    t2 := time.Now().UnixNano()
-    times[i] = t2-t1
-  }
-  printStats(times)
+  // for i:=0; i < iters; i++ {
+  //   t1 := time.Now().UnixNano()
+  //   clients[0].Get(fmt.Sprintf("%d", i % 10))
+  //   t2 := time.Now().UnixNano()
+  //   times[i] = t2-t1
+  // }
+  // printStats(times)
 
   servers[0].kill()
   servers[3].kill()
 
-  time.Sleep(3 * time.Second)
+  time.Sleep(10 * time.Second)
 
   vs.Kill()
 

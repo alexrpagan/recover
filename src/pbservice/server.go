@@ -29,7 +29,7 @@ const (
 )
 
 // max number of bytes allowed for a segment.
-const SegLimit = 8 * 100
+const SegLimit = 8 * 1024 * 1024
 
 // replication level for cluster
 const RepLevel = 3
@@ -774,30 +774,38 @@ func (pb *PBServer) QuerySegments(args *QuerySegmentsArgs, reply *QuerySegmentsR
 
 
 func (pb *PBServer) PullSegmentsByShards(args *PullSegmentsByShardsArgs, reply *PullSegmentsByShardsReply) error {
-  /*
   segments := make([]Segment, len(args.Segments))
   var wg sync.WaitGroup
   for i, segId := range args.Segments {
     wg.Add(1)
     go func(i int, segId int64) {
-      segment := Segment{}
-      fname := strconv.Itoa(int(segId))
-      segment.slurp(path.Join(SegPath, pb.meHash, pb.md5Digest(args.Owner), fname))
-      // filter out operations from irrelevant shards
-      for _, op := range segment.Ops {
-       	if args.Shards[key2shard(op.Key)] {
-      		segment.append(op)
-      	}
+      buf, ok := pb.buffers[args.Owner]
+
+      oldSeg := &Segment{}
+      newSeg := Segment{}
+
+      if ok && buf.ID == segId {
+        oldSeg = buf
+      } else {
+        oldSeg := &Segment{}
+        fname := strconv.Itoa(int(segId))
+        oldSeg.slurp(path.Join(SegPath, pb.meHash, pb.md5Digest(args.Owner), fname))
       }
-      segments[i] = segment
+
+      // filter out operations from irrelevant shards
+      for _, op := range oldSeg.Ops {
+        if args.Shards[key2shard(op.Key)] {
+          newSeg.append(op)
+        }
+      }
+
+      segments[i] = newSeg
       wg.Done()
     }(i, segId)
   }
   wg.Wait()
   reply.Segments = segments
-  */
   return nil
-
 }
 
 
@@ -817,9 +825,7 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 
   for {
 
-    fmt.Println("Trying ", segmentsInProcess, pb.me)
-
-    for _, segsToBackups := range recoveryData {
+    for shard, segsToBackups := range recoveryData {
 
       for seg, backups := range segsToBackups {
 
@@ -836,11 +842,24 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 
           backup := backups[rand.Int() % len(backups)]
 
-          go func(seg int64, backup string) {
+          go func(seg int64, backup string, shard int) {
+
+            var mainPrimary string
+
+            OUTER:
+            for primary, shards := range args.DeadPrimaries {
+              for _, s := range shards {
+                if s == shard {
+                  mainPrimary = primary
+                  break OUTER
+                }
+              }
+            }
 
             pullSegmentsArgs  := new(PullSegmentsByShardsArgs)
             pullSegmentsArgs.Segments = []int64{seg}
             pullSegmentsArgs.Shards   = shards
+            pullSegmentsArgs.Owner    = mainPrimary
 
             pullSegmentsReply := new(PullSegmentsByShardsReply)
 
@@ -854,7 +873,7 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
               recoveryMu.Unlock()
             }
 
-          }(seg, backup)
+          }(seg, backup, shard)
 
         }
 

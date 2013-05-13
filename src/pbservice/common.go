@@ -135,6 +135,7 @@ type QuerySegmentsReply struct {
 
 type ElectRecoveryMasterArgs struct {
   RecoveryData map[int]map[int64][]string
+  DeadPrimaries map[string][]int
 }
 
 type ElectRecoveryMasterReply struct {
