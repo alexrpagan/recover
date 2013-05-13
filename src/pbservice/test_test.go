@@ -73,12 +73,12 @@ func Test1(t *testing.T) {
 
   fmt.Println("sending out some puts")
 
-  iters := 1000
+  iters := 3000
 
   times := make([]int64, iters)
 
   var buffer bytes.Buffer
-  for i:=0; i < 8 * 1024 * 100; i++ {
+  for i:=0; i < 8 * 10 ; i++ {
     buffer.WriteString("a")
   }
   valbase := buffer.String()
@@ -87,7 +87,7 @@ func Test1(t *testing.T) {
     //round of puts
     for i:=0; i < iters; i++ {
       t1 := time.Now().UnixNano()
-      clients[0].Put(fmt.Sprintf("%d", i % 10), fmt.Sprintf("%d%s",valbase, i % 10))
+      clients[0].Put(fmt.Sprintf("%d", i), fmt.Sprintf("%c%s",48 + rand.Intn(122-48), valbase))
       t2 := time.Now().UnixNano()
       times[i] = t2-t1
 
@@ -109,7 +109,7 @@ func Test1(t *testing.T) {
   // printStats(times)
 
   // single failure
-  servers[0].kill()
+  servers[1].kill()
 
   time.Sleep(10 * time.Second)
 

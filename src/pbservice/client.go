@@ -12,6 +12,7 @@ import (
   "net/rpc"
   "fmt"
   "time"
+  "hash/adler32"
 )
 
 // clerk for the pbservice which encapsulates a viewservice clerk
@@ -69,6 +70,8 @@ func (ck *Clerk) Get(key string) string {
     if ok {
       ack := call(primary, "PBServer.Get", ck.networkMode, args, &reply)
       if ack { break }
+
+      // TODO: handle extra errors here
     }
     ck.updateView()
     time.Sleep(viewservice.PING_INTERVAL)
@@ -114,6 +117,8 @@ func (ck *Clerk) Put(key string, value string) {
     if ok {
       ack := call(primary, "PBServer.Put", ck.networkMode, args, &reply)
       if ack { break }
+
+      // TODO: handle extra errors here
     }
 
     ck.updateView()
@@ -137,10 +142,5 @@ func (ck *Clerk) viewIsInvalid() bool {
 }
 
 func key2shard(key string) int {
-  shard := 0
-  if len(key) > 0 {
-    shard = int(key[0])
-  }
-  shard %= 100
-  return shard
+  return int(adler32.Checksum([]byte(key))%100)
 }

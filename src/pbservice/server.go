@@ -29,13 +29,13 @@ const (
 )
 
 // max number of bytes allowed for a segment.
-const SegLimit = 8 * 1024 * 1024
+const SegLimit = 8 * 1024 * 100
 
 // replication level for cluster
 const RepLevel = 3
 
 // number of times to retry
-const Retries = 3
+const Retries = 5
 
 // absolute path to where log segments should be stored
 const SegPath = "/tmp/segment/"
@@ -68,6 +68,9 @@ type PBServer struct {
 
   // primary's backup map
   backups map[int64]BackupGroup
+
+  // which segments have we already banished to disk
+  flushed map[int64]bool
 
   // have we seen these puts?
   request map[Request]bool
@@ -123,7 +126,7 @@ func (l *Log) init() {
   seg := new(Segment)
   seg.Size = 0
   seg.Active = true
-  seg.ID = 1
+  seg.ID = rand.Int63()
   seg.Digest = make([]int64, 0)
 
   l.Segments[seg.ID] = seg
@@ -141,7 +144,7 @@ func (l *Log) newSegment() *Segment {
   seg := new(Segment)
   seg.Size = 0
   seg.Active = true
-  seg.ID = l.CurrSegID + 1
+  seg.ID = rand.Int63()
   seg.Ops = make([]Op, 0)
 
   seg.Digest = append(prevSegment.Digest, prevSegment.ID)
@@ -295,7 +298,7 @@ func (pb *PBServer) Put(args *PutArgs, reply *PutReply) error {
   flushed := false
 
   if seg.append(*putOp) == false {
-    fmt.Println("Flushing ", seg.ID, group)
+    // fmt.Println("Flushing ", pb.me, seg.ID, group)
     flushed = true
     if pb.broadcastFlush(seg.ID, group) {
       seg = pb.log.newSegment()
@@ -340,6 +343,7 @@ func (pb *PBServer) checkPrimary(server string, segment int64, key string) Err {
     segs, _ := pb.backedUpSegs[server]
     _, ok := segs[segment]
     if ok == false {
+      fmt.Println("Not responsible!")
       return ErrNotResponsible
     }
   }
@@ -368,7 +372,7 @@ func (pb *PBServer) enlistReplicas(segment Segment) bool {
   enlistArgs.Origin = pb.me
   enlistArgs.Segment = segment
 
-  if numHosts < hostsNeeded {
+  if numHosts <= hostsNeeded {
     fmt.Println("Not enough hosts", numHosts, hostsNeeded, pb.serversAlive)
     return false
   }
@@ -411,18 +415,16 @@ func (pb *PBServer) enlistReplicas(segment Segment) bool {
 
     for idx, ack := range acks {
       host := candidates[replicaIdxs[idx]]
-      if ack == false {
-        // TODO: what the hell do we do here?
-      } else {
+      if ack {
         reply := replies[idx]
         if (reply.Err != OK) {
-          fmt.Println(reply.Err)
+          fmt.Println("ERROR: ", reply.Err)
         } else {
           hostsNeeded--
           enlisted[host] = true
         }
-        delete(availHosts, host)
       }
+      delete(availHosts, host)
     }
 
     if hostsNeeded == 0 {
@@ -468,7 +470,11 @@ func (pb *PBServer) EnlistReplica(args *EnlistReplicaArgs, reply *EnlistReplicaR
 
     segs[segID] = make(map[int]bool)
 
-    pb.buffers[origin] = &(args.Segment)
+    newSeg := args.Segment
+
+    pb.buffers[origin] = &newSeg
+
+    // fmt.Println("Enlisted", args.Origin, pb.me, newSeg.ID)
 
     // record shardnum for op in buffer
     for _, op := range args.Segment.Ops {
@@ -497,9 +503,16 @@ func (pb *PBServer) FlushSeg(args *FlushSegArgs, reply *FlushSegReply) error {
     return nil
   }
 
-  seg, ok := pb.buffers[args.Origin]
+  segPtr, ok := pb.buffers[args.Origin]
 
   if ok {
+
+    // copy over segment
+    seg := *segPtr
+
+    // free buffer
+    delete(pb.buffers, args.Origin)
+
      // write segment to disk in the background
     go func() {
 
@@ -511,16 +524,12 @@ func (pb *PBServer) FlushSeg(args *FlushSegArgs, reply *FlushSegReply) error {
 
       seg.burp(path.Join(dirpath, strconv.Itoa(int(seg.ID))))
 
+      // fmt.Println("Flushed!", args.Origin, pb.me, args.OldSegment)
+
     }()
 
-    delete(pb.buffers, args.Origin)
-
-  } else {
-
-    fmt.Println("No buffer!")
 
   }
-
 
   reply.Err = OK
   return nil
@@ -591,11 +600,10 @@ func (pb *PBServer) broadcastForward(op Op, segment int64, group BackupGroup) bo
 
     // process the responses.
     for idx, ack := range acks {
-      if ack == false {
-        // TODO: what the hell do we do here?
-      } else {
+      if ack {
         reply := replies[idx]
         if (reply.Err != OK) {
+          fmt.Println("ERROR ", reply.Err)
           return false
         } else {
           numAcked += 1
@@ -651,11 +659,10 @@ func (pb *PBServer) broadcastFlush(segment int64, group BackupGroup) bool {
 
     // process the responses.
     for idx, ack := range acks {
-      if ack == false {
-
-      } else {
+      if ack {
         reply := replies[idx]
         if (reply.Err != OK) {
+          fmt.Println("ERROR ", reply.Err)
           return false
         } else {
           numAcked += 1
@@ -877,18 +884,22 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 
             pullSegmentsReply := new(PullSegmentsByShardsReply)
 
-            fmt.Printf("Attempting: %s recovering segment %d from %s for %s:%d \n", pb.me, seg, backup, mainPrimary, shard)
+            // fmt.Printf("Attempting: %s recovering segment %d from %s for %s:%d \n", pb.me, seg, backup, mainPrimary, shard)
             ok1 := call(backup, "PBServer.PullSegmentsByShards", pb.networkMode, pullSegmentsArgs, pullSegmentsReply)
 
             if ok1 {
               recoveryMu.Lock()
-              fmt.Printf("%s recovered segment %d from %s for %s:%d \n", pb.me, seg, backup, mainPrimary, shard)
-              segmentsRecovered[seg] = &(pullSegmentsReply.Segments[0])
+              // fmt.Printf("%s recovered segment %d from %s for %s:%d \n", pb.me, seg, backup, mainPrimary, shard)
+              recovered := pullSegmentsReply.Segments[0]
+              segmentsRecovered[seg] = &recovered
               delete(segmentsInProcess, seg)
               recoveryMu.Unlock()
 
               pb.mu.Lock()
-              // todo: replay operations here.
+              fmt.Println("Reading ops: ", shard, seg)
+              for _, op := range recovered.Ops {
+                fmt.Println(pb.me, seg, shard, op.Key)
+              }
               pb.mu.Unlock()
 
             } else {
@@ -924,8 +935,6 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
     }
 
   }
-
-
 
 
 	return nil
