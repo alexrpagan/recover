@@ -156,6 +156,7 @@ func (vs *ViewServer) tick() {
 func (vs *ViewServer) recover(deadPrimaries map[string][]int) {
 
 	fmt.Println("Recovery initiated ", deadPrimaries)
+	fmt.Println("")
 
 	vs.mu.Lock()
 	serversAliveCpy := make([]string, len(vs.serversAlive))
@@ -179,7 +180,9 @@ func (vs *ViewServer) recover(deadPrimaries map[string][]int) {
 	for idx, server := range serversAliveCpy {
 		wg.Add(1)
 		go func(idx int, server string) {
-			acks[idx] = call(server, "PBService.QuerySegments", vs.networkMode, querySegArgs, queryReplies[idx])
+			querySegReply := new(QuerySegmentsReply)
+			acks[idx] = call(server, "PBServer.QuerySegments", vs.networkMode, querySegArgs, querySegReply)
+			queryReplies[idx] = querySegReply
 			wg.Done()
 		}(idx, server)
 	}
@@ -189,7 +192,7 @@ func (vs *ViewServer) recover(deadPrimaries map[string][]int) {
 	shrdToSegToSrv := make(map[int]map[int64][]string)
 
 	// run through replies from potential backups and figure out what useful data each has
-	for i:=0; i<numLiveServers; i++ {
+	for i:=0; i < numLiveServers; i++ {
 		if acks[i] {
 			for _, segsToShards := range queryReplies[i].BackedUpSegments {
 				for segment, shards := range segsToShards {
@@ -244,11 +247,18 @@ func (vs *ViewServer) recover(deadPrimaries map[string][]int) {
 	// TODO: record recovery masters for in-progress recoveries.
 
 	// send out election notices
+
+	// fmt.Println(shrdToSegToSrv)
+	// fmt.Println("")
+
+	// fmt.Println(recoveryMasters)
+	// fmt.Println("")
+
 	for recoveryMaster, recoveryShards := range recoveryMasters {
 
 		// relevant subset of shrdToSegToSrv
 		recoveryData := make(map[int]map[int64][]string)
-		for shard, _ := range recoveryShards {
+		for _, shard := range recoveryShards {
 			recoveryData[shard] = shrdToSegToSrv[shard]
 		}
 
@@ -256,7 +266,7 @@ func (vs *ViewServer) recover(deadPrimaries map[string][]int) {
 		electionReply := new(ElectRecoveryMasterReply)
 		electionArgs.RecoveryData = recoveryData
 
-		go call(recoveryMaster, "PBService.ElectRecoveryMaster", vs.networkMode, electionArgs, electionReply)
+		go call(recoveryMaster, "PBServer.ElectRecoveryMaster", vs.networkMode, electionArgs, electionReply)
 
 	}
 

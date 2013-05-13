@@ -66,7 +66,7 @@ func Test1(t *testing.T) {
     clients[i] = MakeClerk(hostname, vshost, mode)
   }
 
-  iters := 200
+  iters := 2000
 
   times := make([]int64, iters)
 
@@ -86,6 +86,11 @@ func Test1(t *testing.T) {
     times[i] = t2-t1
   }
   printStats(times)
+
+  servers[0].kill()
+  servers[3].kill()
+
+  time.Sleep(3 * time.Second)
 
   vs.Kill()
 

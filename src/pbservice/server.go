@@ -29,7 +29,7 @@ const (
 )
 
 // max number of bytes allowed for a segment.
-const SegLimit = 8 * 1024 * 1024
+const SegLimit = 8 * 100
 
 // replication level for cluster
 const RepLevel = 3
@@ -204,7 +204,19 @@ type BackupGroup struct {
 
 // records that the segment that we're backing contains ops from a certain shard
 func (pb *PBServer) recordShardBackup (origin string, segID int64, op Op) {
+
+  _, ok1 := pb.backedUpSegs[origin]
+  if ! ok1 {
+    pb.backedUpSegs[origin] = make(map[int64] map[int]bool)
+  }
+
+  _, ok2 := pb.backedUpSegs[origin][segID]
+  if ! ok2 {
+    pb.backedUpSegs[origin][segID] = make(map[int]bool)
+  }
+
   pb.backedUpSegs[origin][segID][key2shard(op.Key)] = true
+
 }
 
 func (pb *PBServer) PullSegments(args *PullSegmentsArgs, reply *PullSegmentsReply) error {
@@ -745,7 +757,7 @@ func (pb *PBServer) TestPullSegments(args *TestPullSegmentsArgs, reply *TestPull
 func (pb *PBServer) QuerySegments(args *QuerySegmentsArgs, reply *QuerySegmentsReply) error {
 
   // subset of backedUpSegs relevant to query
-	relevant := make(map[string] map[int64] map[int]bool)
+	relevant := make(map[string]map[int64]map[int]bool)
 
 	for dead, _ := range args.DeadPrimaries {
     segMap, ok := pb.backedUpSegs[dead]
@@ -762,6 +774,7 @@ func (pb *PBServer) QuerySegments(args *QuerySegmentsArgs, reply *QuerySegmentsR
 
 
 func (pb *PBServer) PullSegmentsByShards(args *PullSegmentsByShardsArgs, reply *PullSegmentsByShardsReply) error {
+  /*
   segments := make([]Segment, len(args.Segments))
   var wg sync.WaitGroup
   for i, segId := range args.Segments {
@@ -782,269 +795,81 @@ func (pb *PBServer) PullSegmentsByShards(args *PullSegmentsByShardsArgs, reply *
   }
   wg.Wait()
   reply.Segments = segments
+  */
   return nil
+
 }
 
 
 // recover the shards in args.ShardsToSegmentsToServers
 func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *ElectRecoveryMasterReply) error {
-/*
-	reply.ServerName = pb.me
-  var repliesFinishedLock sync.Mutex
 
-	// while there are still shards to recover, assemble and execute queryPlans for segments
-	for len(args.ShardsToSegmentsToServers) > 0 {
+  recoveryData       := args.RecoveryData
+  segmentsRecovered  := make(map[int64]*Segment)
+  segmentsInProcess  := make(map[int64]time.Time)
 
-		// backups -> set of log segments. segments that we need to retrieve.
-		queryPlan := make(map[string] (map[int64] bool))
+  var recoveryMu sync.Mutex
 
-		// segment IDs -> shards. keep track of completed shards.
-		segmentShards := make(map[int64] int)
+  shards := make(map[int]bool)
+  for shard, _ := range recoveryData {
+    shards[shard] = true
+  }
 
-		repliesFinished := 0
+  for {
 
-		// assemble queryPlan by assigning segments to the server with the smallest queryPlan so far
-		for shard, segmentsToServers := range args.ShardsToSegmentsToServers {
+    fmt.Println("Trying ", segmentsInProcess, pb.me)
 
-			for segment, servers := range segmentsToServers {
+    for _, segsToBackups := range recoveryData {
 
-				// if all the backups for this segment have failed, just ignore it and move on
-				// for keys where this is not the final segment, they will not be affect
-				// for keys where this is the final segment among several, their values will revert to the last recoverable value
-				// for keys where this is the only segment, the data will be completely lost
+      for seg, backups := range segsToBackups {
 
-				if len(servers) == 0 {
+        recoveryMu.Lock()
+        _, recovered := segmentsRecovered[seg]
+        recoveryTime, inProcess := segmentsInProcess[seg]
+        recoveryMu.Unlock()
 
-          fmt.Printf("Could not recover segment %d for shard %d\n", segment, shard)
-					delete(args.ShardsToSegmentsToServers[shard], segment)
+        if (time.Since(recoveryTime) >= 10 * time.Second || ! inProcess) && ! recovered {
 
-				} else {
+          recoveryMu.Lock()
+          segmentsInProcess[seg] = time.Now()
+          recoveryMu.Unlock()
 
-					segmentShards[segment] = shard   // keep track of which shards segments belong to whom
+          backup := backups[rand.Int() % len(backups)]
 
-					// find which server has the shortest query plan so far and assign to it this segment
-					min := -1
-					var minServer string
+          go func(seg int64, backup string) {
 
-					for server, _ := range servers {
-						if min < 0 || len(queryPlan[server]) < min {
-							min = len(queryPlan[server])
-							minServer = server
-						}
-					}
+            pullSegmentsArgs  := new(PullSegmentsByShardsArgs)
+            pullSegmentsArgs.Segments = []int64{seg}
+            pullSegmentsArgs.Shards   = shards
 
-					_, present := queryPlan[minServer]
+            pullSegmentsReply := new(PullSegmentsByShardsReply)
 
-					// notice we only at the server to the queryPlan once we know it's part of the query
-					// we don't create a map prematurely both for simplicity and for knowledge of how many replies we're waiting for before making another query
-					if !present {
-						queryPlan[minServer] = make(map[int64] bool)
-					}
+            ok1 := call(backup, "PBServer.PullSegmentsByShards", pb.networkMode, pullSegmentsArgs, pullSegmentsReply)
 
-					queryPlan[minServer][segment] = true
-					// remove servers from segments as they are tried so we won't retry a server twice
-					// note: this doesn't remove the server for ALL segments, but that does happen in the goroutine below for failed servers
-					delete(args.ShardsToSegmentsToServers[shard][segment], minServer)
+            if ok1 {
+              recoveryMu.Lock()
+              fmt.Printf("%s recovered segment %d from %s \n", pb.me, seg, backup)
+              segmentsRecovered[seg] = &Segment{}
+              delete(segmentsInProcess, seg)
+              recoveryMu.Unlock()
+            }
 
-				}
+          }(seg, backup)
 
-			}
+        }
 
-		}
+      }
 
-		// synchronize around the decision phases of the separate query threads
-		var queryLock sync.Mutex
+    }
 
-		// most recent recovered puts by key to allow replaying of more recent puts from recovered log segments
-		keysToPuts := make(map[string] PutOrder)
+    if len(segmentsInProcess) == 0 {
+      return nil
+    } else {
+      time.Sleep(50 * time.Millisecond)
+    }
 
-    // keep track of segments which have been recovered so we don't repeat iterating through them for future shards which share them
-		recoveredSegments := make(map[int64] bool)
+  }
 
-		// convert args.ShardsToSegmentsToServers to set of shards for use by PBServer.PullSegmentsByShards
-		shardsToRecover := make(map[int] bool)
-
-		for shard, _ := range args.ShardsToSegmentsToServers {
-
-			shardsToRecover[shard] = true
-
-		}
-
-		// execute the queryPlan by pulling the segments from each of the servers
-		for server, segments := range queryPlan {
-
-			// convert segments to a slice for sending
-			segmentsToRequest := make([]int64, len(segments))
-
-			i := 0
-
-			for segment, _ := range segments {
-
-				segmentsToRequest[i] = segment
-
-				i++
-
-			}
-
-			// launch a goroutine to request the segments, replay the relevant log segments, and prune args.ShardsToSegmentsToServers
-			go func(backupServer string, requestedSegments []int64) {
-
-				// keep track of which shards have recovered successfully for reporting to the viewservice
-				completedShards := make(map[int] bool)
-
-				// request the segments
-				pullSegmentsByShardsArgs := PullSegmentsByShardsArgs{Segments: requestedSegments, Shards: shardsToRecover}
-				pullSegmentsByShardsReply := PullSegmentsByShardsReply{}
-				successful := call(server, "PBServer.PullSegmentsByShards", pb.networkMode, pullSegmentsByShardsArgs, &pullSegmentsByShardsReply)
-
-				// grab the queryLock around the entire decision phase
-				queryLock.Lock()
-
-				// upon receiving a reply, iterate through the segments, replay most recent ones, and remove them from args.ShardsToSegmentsToSenders
-				if successful {
-
-					for _, segment := range pullSegmentsByShardsReply.Segments {
-
-						// check for segments in recoveredSegments
-						if !recoveredSegments[segment.ID] {
-
-							// replay put operations if they are more recent than other recovered puts for the same key
-							for opIndex, op := range segment.Ops {
-
-								_, present := keysToPuts[op.Key]
-
-								// if !present || (segment.ID greater || (segment.ID equal but opIndex greater)), replay, append, and update
-								if !present || (segment.ID > keysToPuts[op.Key].SegmentID || (segment.ID == keysToPuts[op.Key].SegmentID && opIndex > keysToPuts[op.Key].OpIndex)) {
-
-									pb.mu.Lock()
-
-                  currSeg, _ := pb.log.getCurrSegment()
-
-                  // TODO: what if group is not initialized?
-                  group, _ := pb.backups[currSeg.ID]
-
-									if !currSeg.append(op) {
-
-										delete(pb.backups, currSeg.ID)
-
-										if pb.broadcastFlush(currSeg.ID, group) {
-
-											currSeg = pb.log.newSegment()
-											currSeg.append(op)
-
-											if pb.enlistReplicas(*currSeg) == false {
-
-												panic("could not enlist enough replicas")
-
-											}
-
-										} else {
-
-											panic("backup failure on flush")
-
-										}
-
-									}
-
-									pb.mu.Unlock()
-
-									keysToPuts[op.Key] = PutOrder{SegmentID: segment.ID, OpIndex: opIndex}
-
-								}
-
-							}
-
-							// mark the segment as recovered so we won't iterate through it again for future shards
-							recoveredSegments[segment.ID] = true
-
-						}
-
-						// prune segments from args.ShardsToSegmentsToSenders
-						delete(args.ShardsToSegmentsToSenders[segmentShards[segment.ID]], segment.ID)
-
-						// if all of the shard's segments have been recovered, call ViewServer.RecoveryCompleted and prune the shard
-						if len(args.ShardsToSegmentsToServers[segmentShards[segment.ID]]) <= 0 {
-
-							completedShards[segmentShards[segment.ID]] = true
-							// remove the shard from args.ShardsToSegmentsToServers so the next queryPlan won't try to recover it
-							delete(args.ShardsToSegmentsToServers, segmentShards[segment.ID])
-
-						}
-
-					}
-
-				} else {
-
-					// consider the server failed, remove it from all segments in args.ShardsToSegmentsToServers
-					for shard, segmentsToServers := range args.ShardsToSegmentsToServers {
-
-						for segment, _ := range segmentsToServers {
-
-							delete(args.ShardsToSegmentsToServers[shard][segment], backupServer)
-
-						}
-
-					}
-
-				}
-
-				repliesFinished++
-				// release the queryLock
-				queryLock.Unlock()
-
-				// report any completed shards to the viewservice
-				for completedShard, _ := range completedShards {
-
-					recoveryCompleted := false
-
-					for !recoveryCompleted {
-
-            // TODO: should probably encapulate in clerk
-
-						recoveryCompletedArgs := RecoveryCompletedArgs{ServerName: pb.me, ShardRecovered: completedShard}
-						recoveryCompletedReply := RecoveryCompletedReply{}
-						recoveryCompleted = call(pb.clerk.GetServerName(), "ViewServer.RecoveryCompleted", pb.networkMode, &recoveryCompletedArgs, &recoveryCompletedReply)
-
-					}
-
-				}
-
-			}(server, segmentsToRequest)
-
-		}
-
-		// should wait for the query to complete before issuing duplicate rpc's in a new query
-		// possible optimization: it would be nice if instead of thinking in terms of full queries,
-		// we could start asking for unretrieved segments without waiting
-		// we resorted to the full queryPlan model because we originally sent an rpc for each individual segment
-		// this obviously created a ridiculous amount of rpc's to each server
-		// some compromise of the two ideas would be best
-		// for example, do 1 iteration of a full queryPlan, and as segments fail retrieval, they are then sent for individually,
-		// or batched with some timing mechanism
-		// the optimization of this scheme could get pretty elaborate, so for now we are happy with the iterative queryPlan idea
-		// furthermore, there is actually no difference between these ideas if no servers fail during the first query execution,
-		// which our failure model assumes is highly likely
-		for {
-
-			time.Sleep(PULL_SEGMENTS_SLEEP_INTERVAL)
-
-			repliesFinishedLock.Lock()
-
-			if repliesFinished >= len(queryPlan) {
-
-				repliesFinishedLock.Unlock()
-
-				break
-
-			}
-
-			repliesFinishedLock.Unlock()
-
-		}
-
-	}
-
-*/
 	return nil
 }
 
@@ -1094,9 +919,9 @@ func StartMe(me string, viewServer string, networkMode string) *PBServer {
 
   pb.backups = map[int64]BackupGroup{}
 
-  pb.networkMode = networkMode
-
   pb.serversAlive = map[string]bool{}
+
+  pb.networkMode = networkMode
 
   rpcs := rpc.NewServer()
   rpcs.Register(pb)
