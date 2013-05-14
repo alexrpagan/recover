@@ -565,12 +565,16 @@ func (pb *PBServer) ForwardOp(args *ForwardOpArgs, reply *ForwardOpReply) error 
     return nil
   }
 
-  buf, _ := pb.buffers[origin]
-  res := buf.append(op)
-  pb.recordShardBackup(origin, seg, op)
-
-  if res == false {
-    panic("buffer size exceeded in replica. should never happen.")
+  buf, ok := pb.buffers[origin]
+  if ok {
+    res := buf.append(op)
+    pb.recordShardBackup(origin, seg, op)
+    if res == false {
+      fmt.Println("buffer size exceeded in replica. should never happen.")
+    }
+  } else {
+    // TODO: when can this happen?
+    fmt.Println("No buffer currently. Ignoring.")
   }
 
   reply.Err = OK
