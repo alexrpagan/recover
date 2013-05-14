@@ -10,6 +10,7 @@ import (
   "os"
   "time"
   "math/rand"
+  "bytes"
 )
 
 var vs_idx = 0
@@ -81,9 +82,15 @@ func main() {
     switch *bench {
     case 0:
       //round of puts
+      var buffer bytes.Buffer
+      for i:=0; i < 8 * 1024 * 100; i++ {
+        buffer.WriteString("a")
+      }
+      valbase := buffer.String()
+
       for i:=0; i < iters; i++ {
         t1 := time.Now().UnixNano()
-        ck.Put(fmt.Sprintf("%d", i), fmt.Sprintf("%c four score and seven years",48 + rand.Intn(122-48)))
+        ck.Put(fmt.Sprintf("%d", i), fmt.Sprintf("%c%s",48 + rand.Intn(122-48), valbase))
         t2 := time.Now().UnixNano()
         times[i] = t2-t1
         if i % 100 == 0 {
@@ -92,13 +99,26 @@ func main() {
       }
       printStats(times)
 
+    case 1:
       for i:=0; i < iters; i++ {
         t1 := time.Now().UnixNano()
-        fmt.Println(ck.Get(fmt.Sprintf("%d", i % 10)))
+        val := ck.Get(fmt.Sprintf("%d", i % 10))
+
+        if len(val) > 0 && val != "errnokey" {
+          //no op
+        } else {
+          fmt.Println("failure!")
+        }
+
+        if i % 100 == 0 {
+          fmt.Println("finished ", i)
+        }
+
         t2 := time.Now().UnixNano()
         times[i] = t2-t1
       }
       printStats(times)
+
     }
 
     block <- 1

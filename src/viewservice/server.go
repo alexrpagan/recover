@@ -39,6 +39,7 @@ type ViewServer struct {
 
 	//keep track of which shards need to be recovered
 	recoveryMasters map[string]map[int]bool
+	recoveryTimes map[string] time.Time
 
 	networkMode string
 
@@ -289,6 +290,7 @@ func (vs *ViewServer) recover(deadPrimaries map[string][]int) {
 			}
 			shards[shard] = true
 			vs.recoveryMasters[recoveryMaster] = shards
+			vs.recoveryTime[recoveryMaster] = time.Now()
 			vs.mu.Unlock()
 
 		}
@@ -328,7 +330,8 @@ func (vs *ViewServer) RecoveryCompleted(args *RecoveryCompletedArgs, reply *Reco
 	vs.view.ViewNumber++
 
 	if len(vs.recoveryMasters) == 0 {
-		fmt.Println("recovery completed!")
+		fmt.Println("recovery completed in ", time.Since(vs.recoveryTimes[args.ServerName]))
+		delete(vs.recoveryTimes, args.ServerName)
 	}
 
 	return nil
