@@ -834,14 +834,15 @@ func (pb *PBServer) PullSegmentsByShards(args *PullSegmentsByShardsArgs, reply *
         oldSeg.slurp(path.Join(SegPath, pb.meHash, pb.md5Digest(args.Owner), fname))
       }
 
-      // filter out operations from irrelevant shards
-      for _, op := range oldSeg.Ops {
-        if args.Shards[key2shard(op.Key)] {
-          newSeg.append(op)
-        }
-      }
+      // // filter out operations from irrelevant shards
+      // for _, op := range oldSeg.Ops {
+      //   if args.Shards[key2shard(op.Key)] {
+      //     newSeg.append(op)
+      //   }
+      // }
 
-      segments[i] = newSeg
+      // segments[i] = newSeg
+      segments[i] = oldSeg
       wg.Done()
     }(i, segId)
   }
