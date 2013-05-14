@@ -824,7 +824,7 @@ func (pb *PBServer) PullSegmentsByShards(args *PullSegmentsByShardsArgs, reply *
       pb.backupMu.Unlock()
 
       oldSeg := &Segment{}
-      newSeg := Segment{}
+      // newSeg := Segment{}
 
       if ok && buf.ID == segId {
         oldSeg = buf
