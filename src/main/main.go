@@ -8,6 +8,8 @@ import (
   "viewservice"
   "pbservice"
   "os"
+  "time"
+  "math/rand"
 )
 
 var vs_idx = 0
@@ -18,6 +20,7 @@ var port = ":5000"
 // turn on profiling
 var cpuprofile = flag.String("prof", "", "write cpu profile to file")
 var me         = flag.Int("me", -1, "who am I")
+var bench      = flag.Int("bench", -1, "run a benchmark")
 
 var hosts = []string{ "ec2-184-72-166-194.compute-1.amazonaws.com",
                       "ec2-23-20-132-169.compute-1.amazonaws.com",
@@ -29,6 +32,30 @@ var hosts = []string{ "ec2-184-72-166-194.compute-1.amazonaws.com",
                       "ec2-54-242-209-195.compute-1.amazonaws.com",
                       "ec2-50-16-130-137.compute-1.amazonaws.com",
                       "ec2-54-242-42-105.compute-1.amazonaws.com" }
+
+
+func printStats(samples []int64) {
+  var sum int64 = 0
+  var min int64 = 1<<63 - 1
+  var max int64 = -(1<<63)
+
+  n := len(samples)
+
+  for _, val := range samples {
+    sum += val
+    if val > max {
+      max = val
+    }
+    if val < min {
+      min = val
+    }
+  }
+
+  fmt.Printf("Avg time (micros) %d\n", sum/int64(n*1000))
+  fmt.Printf("Min %d\n", min/int64(1000))
+  fmt.Printf("Max %d\n", max/int64(1000))
+
+}
 
 func main() {
 
@@ -42,6 +69,43 @@ func main() {
     pprof.StartCPUProfile(f)
     defer pprof.StopCPUProfile()
   }
+
+  if *bench >= 0 {
+
+    fmt.Println("running benchmark ", *bench)
+
+    ck := pbservice.MakeClerk("", hosts[0] + port, mode)
+    iters := 10000
+    times := make([]int64, iters)
+
+    switch *bench {
+    case 0:
+      //round of puts
+      for i:=0; i < iters; i++ {
+        fmt.Println(i)
+        t1 := time.Now().UnixNano()
+        ck.Put(fmt.Sprintf("%d", i), fmt.Sprintf("%cvalue",48 + rand.Intn(122-48)))
+        t2 := time.Now().UnixNano()
+        times[i] = t2-t1
+
+        if i % 100 == 0 {
+          fmt.Println("finished ", i)
+        }
+      }
+      printStats(times)
+
+      for i:=0; i < iters; i++ {
+        t1 := time.Now().UnixNano()
+        fmt.Println(ck.Get(fmt.Sprintf("%d", i % 10)))
+        t2 := time.Now().UnixNano()
+        times[i] = t2-t1
+      }
+      printStats(times)
+    }
+
+    block <- 1
+  }
+
 
   if *me == 0 {
 
