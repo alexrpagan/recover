@@ -13,7 +13,6 @@ import (
 var vs_idx = 0
 
 var mode = "tcp"
-
 var port = ":5000"
 
 // turn on profiling

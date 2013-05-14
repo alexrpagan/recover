@@ -7,10 +7,8 @@ import "time"
 const PING_INTERVAL = time.Millisecond * 100
 const DEAD_PINGS = 10
 const REPLICATION_LEVEL = 3
-const CRITICAL_MASS = 8
+const CRITICAL_MASS = 5
 const NUMBER_OF_SHARDS = 100
-const QUERY_SEGMENTS_SLEEP_INTERVAL = time.Millisecond * 300
-
 
 type View struct {
 	ViewNumber uint

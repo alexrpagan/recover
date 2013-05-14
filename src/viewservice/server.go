@@ -141,6 +141,7 @@ func (vs *ViewServer) tick() {
 				vs.view.ShardsToPrimaries[c] = primaryServersSlice[c % len(primaryServersSlice)]
 			}
 
+			fmt.Println("Reached critical mass ", vs.primaryServers)
 			vs.criticalMassReached = true
 		}
 
