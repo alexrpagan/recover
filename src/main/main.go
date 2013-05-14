@@ -86,6 +86,9 @@ func main() {
         ck.Put(fmt.Sprintf("%d", i), fmt.Sprintf("%c four score and seven years",48 + rand.Intn(122-48)))
         t2 := time.Now().UnixNano()
         times[i] = t2-t1
+        if i % 100 == 0 {
+          fmt.Println("finished ", i)
+        }
       }
       printStats(times)
 
