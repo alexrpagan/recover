@@ -35,6 +35,7 @@ type GetReply struct {
 type RecoveryCompletedArgs struct {
 	ServerName string
 	ShardRecovered int
+	DataRecieved int
 }
 
 type RecoveryCompletedReply struct {

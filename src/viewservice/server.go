@@ -331,6 +331,7 @@ func (vs *ViewServer) RecoveryCompleted(args *RecoveryCompletedArgs, reply *Reco
 
 	if len(vs.recoveryMasters) == 0 {
 		fmt.Println("recovery completed in ", time.Since(vs.recoveryTimes[args.ServerName]))
+		fmt.Printf("recovery master recieved %d bytes of data\n", args.DataRecieved)
 		delete(vs.recoveryTimes, args.ServerName)
 	}
 

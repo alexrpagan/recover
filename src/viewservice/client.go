@@ -90,10 +90,11 @@ func (ck *Clerk) Get() (View, bool) {
   return reply.View, true
 }
 
-func (ck *Clerk) RecoveryCompleted(me string, shard int) bool {
+func (ck *Clerk) RecoveryCompleted(me string, shard int, size int) bool {
   args  := RecoveryCompletedArgs{}
   args.ServerName = me
   args.ShardRecovered = shard
+  args.DataRecieved = size
   reply := &RecoveryCompletedReply{}
 
   ok := call(ck.server, "ViewServer.RecoveryCompleted", ck.networkMode, args, &reply)
