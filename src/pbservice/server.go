@@ -860,7 +860,7 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 
   for {
 
-    fmt.Println(recoveryData)
+    // fmt.Println(recoveryData)
 
     for shard, segsToBackups := range recoveryData {  // for each shard that we're tasked with recovering
 
