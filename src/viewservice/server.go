@@ -36,6 +36,10 @@ type ViewServer struct {
 	serversAlive map[string] bool			// all servers which can currently communicate with the viewservice
 	primaryServers map[string] bool			// tracks which servers are primaries
 	recoveryInProcess map[string][]int
+
+	//keep track of which shards need to be recovered
+	recoveryMasters map[string]map[int]bool
+
 	networkMode string
 
 }
@@ -275,6 +279,17 @@ func (vs *ViewServer) recover(deadPrimaries map[string][]int) {
 		recoveryData := make(map[int]map[int64][]string)
 		for _, shard := range recoveryShards {
 			recoveryData[shard] = shrdToSegToSrv[shard]
+
+			// keep track of shards that this guy is supposed to recover
+			vs.mu.Lock()
+			shards, ok := vs.recoveryMasters[recoveryMaster]
+			if ! ok {
+				shards = make(map[int]bool)
+			}
+			shards[shard] = true
+			vs.recoveryMasters[recoveryMaster] = shards
+			vs.mu.Unlock()
+
 		}
 
 		electionArgs  := new(ElectRecoveryMasterArgs)
@@ -286,6 +301,8 @@ func (vs *ViewServer) recover(deadPrimaries map[string][]int) {
 
 	}
 
+
+
 }
 
 
@@ -296,8 +313,22 @@ func (vs *ViewServer) RecoveryCompleted(args *RecoveryCompletedArgs, reply *Reco
 
 	fmt.Printf("Recovered shard %d from server %s \n", args.ShardRecovered, args.ServerName)
 
+	shards, ok := vs.recoveryMasters[args.ServerName]
+	if ! ok {
+		panic("Recovery master has no shards to recover. Should never happen.")
+	}
+
+	delete(shards, args.ShardRecovered)
+	if len(shards) == 0 {
+		delete(vs.recoveryMasters, args.ServerName)
+	}
+
 	vs.view.ShardsToPrimaries[args.ShardRecovered] = args.ServerName
 	vs.view.ViewNumber++
+
+	if len(vs.recoveryMasters) == 0 {
+		fmt.Println("recovery completed!")
+	}
 
 	return nil
 
@@ -331,6 +362,7 @@ func StartMe(me string, networkMode string) *ViewServer {
 	vs.serversAlive = make(map[string] bool)
 	vs.primaryServers = make(map[string] bool)
 	vs.recoveryInProcess = make(map[string][]int)
+	vs.recoveryMasters = make(map[string]map[int]bool)
 
 	vs.networkMode = networkMode
 

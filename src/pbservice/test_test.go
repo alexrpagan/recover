@@ -78,7 +78,7 @@ func Test1(t *testing.T) {
   times := make([]int64, iters)
 
   var buffer bytes.Buffer
-  for i:=0; i < 8 * 1024 ; i++ {
+  for i:=0; i < 8 * 1024 * 100 ; i++ {
     buffer.WriteString("a")
   }
   valbase := buffer.String()

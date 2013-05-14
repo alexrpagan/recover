@@ -539,10 +539,7 @@ func (pb *PBServer) FlushSeg(args *FlushSegArgs, reply *FlushSegReply) error {
 
       seg.burp(path.Join(dirpath, strconv.Itoa(int(seg.ID))))
 
-      // fmt.Println("Flushed!", args.Origin, pb.me, args.OldSegment)
-
     }()
-
 
   }
 
