@@ -271,14 +271,18 @@ func (pb *PBServer) Put(args *PutArgs, reply *PutReply) error {
   defer pb.mu.Unlock()
 
   seg, _ := pb.log.getCurrSegment()
-  group, ok := pb.backups[seg.ID]
 
-  for idx, server := range group.Backups {
-    if pb.serversAlive[server] == false {
-      fmt.Println("Removing failed backup ", server)
-      group.Backups = append(group.Backups[:idx], group.Backups[idx+1:]...)
+  group, ok := pb.backups[seg.ID]
+  newGroup := make([]string, 0)
+
+  for _, srv := range group.Backups {
+    if pb.serversAlive[srv] {
+      newGroup = append(newGroup, srv)
     }
   }
+
+  group.Backups = newGroup
+  pb.backups[seg.ID] = group
 
   if ! ok {
     if pb.enlistReplicas(*seg) == false {
@@ -702,10 +706,10 @@ func (pb *PBServer) tick() {
 	view, serversAlive, err := pb.clerk.Ping(pb.view.ViewNumber)
   if err == nil {
   	pb.mu.Lock()
-  	
+
     pb.view = view
     pb.serversAlive = serversAlive
-    
+
     pb.mu.Unlock()
   }
 
@@ -946,12 +950,13 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
                 newGroup := make([]string, 0)
                 for _, srv := range group.Backups {
                   _, dead := args.DeadPrimaries[srv]
-                  if dead == false {
+                  if dead == false && pb.serversAlive[srv] {
                     newGroup = append(newGroup, srv)
                   }
                 }
 
                 group.Backups = newGroup
+                pb.backups[seg.ID] = group
 
                 // normal put codepath
                 flushed := false
