@@ -920,12 +920,15 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
               recoveryMu.Lock()
               // fmt.Printf("%s recovered segment %d from %s for %s:%d \n", pb.me, seg, backup, mainPrimary, shard)
               recovered := pullSegmentsReply.Segments[0]
-              dataRecieved[shard] = dataRecieved[shard] + recovered.Size
               segmentsRecovered[seg] = &recovered
               delete(segmentsInProcess, seg)
               recoveryMu.Unlock()
 
               for _, newOp := range recovered.Ops {
+
+                recoveryMu.Lock()
+                dataRecieved[shard] = dataRecieved[shard] + newOp.size()
+                recoveryMu.Unlock()
 
                 pb.mu.Lock()
 
