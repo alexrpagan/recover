@@ -367,6 +367,7 @@ func StartMe(me string, networkMode string) *ViewServer {
 	vs.primaryServers = make(map[string] bool)
 	vs.recoveryInProcess = make(map[string][]int)
 	vs.recoveryMasters = make(map[string]map[int]bool)
+	vs.recoveryTime = make(map[string] time.Time)
 
 	vs.networkMode = networkMode
 
