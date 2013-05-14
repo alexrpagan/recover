@@ -829,7 +829,6 @@ func (pb *PBServer) PullSegmentsByShards(args *PullSegmentsByShardsArgs, reply *
       if ok && buf.ID == segId {
         oldSeg = buf
       } else {
-        oldSeg := &Segment{}
         fname := strconv.Itoa(int(segId))
         oldSeg.slurp(path.Join(SegPath, pb.meHash, pb.md5Digest(args.Owner), fname))
         fmt.Println("Pulled from disk", segId, oldSeg.Size)
@@ -1014,6 +1013,7 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
         for _, seg := range segmentsRecovered {
           _, ok := segsToBackups[seg.ID]
           if ok {
+            fmt.Println("recovered", seg.ID, seg.Size)
             total += seg.Size
           }
         }
