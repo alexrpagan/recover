@@ -1,19 +1,13 @@
 #!/bin/bash
 set -e
 
-user="apagan"
+user="ubuntu"
 
 while read host; do
-    ssh $user@$host " . .bash_profile \
-                      && mkdir -p code \
+    ssh -i 6824.pem $user@$host "mkdir -p code \
                       && cd code \
                       && rm -rf xfertest \
-                      && git clone https://github.com/alexrpagan/xfertest.git \
-                      && cd xfertest \
-                      && . ./scripts/init.sh \
-                      && ./scripts/killservers.sh \
-                      && cd xfertest/src/main \
-                      && go run main.go -h $host" &
+                      && git clone https://github.com/alexrpagan/xfertest.git" &
 done < servers
 
 wait
