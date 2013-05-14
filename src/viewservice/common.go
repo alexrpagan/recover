@@ -5,7 +5,7 @@ import "time"
 
 
 const PING_INTERVAL = time.Millisecond * 100
-const DEAD_PINGS = 5
+const DEAD_PINGS = 10
 const REPLICATION_LEVEL = 3
 const CRITICAL_MASS = 8
 const NUMBER_OF_SHARDS = 100
