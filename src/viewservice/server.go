@@ -315,6 +315,9 @@ func (vs *ViewServer) RecoveryCompleted(args *RecoveryCompletedArgs, reply *Reco
 	defer vs.mu.Unlock()
 
 	fmt.Printf("Recovered shard %d from server %s \n", args.ShardRecovered, args.ServerName)
+	fmt.Println("recovery completed in ", time.Since(vs.recoveryTimes[args.ServerName]))
+	delete(vs.recoveryTimes, args.ServerName)
+	fmt.Printf("recovery master recieved %d bytes of data\n", args.DataRecieved)
 
 	shards, ok := vs.recoveryMasters[args.ServerName]
 	if ! ok {
@@ -330,9 +333,7 @@ func (vs *ViewServer) RecoveryCompleted(args *RecoveryCompletedArgs, reply *Reco
 	vs.view.ViewNumber++
 
 	if len(vs.recoveryMasters) == 0 {
-		fmt.Println("recovery completed in ", time.Since(vs.recoveryTimes[args.ServerName]))
-		fmt.Printf("recovery master recieved %d bytes of data\n", args.DataRecieved)
-		delete(vs.recoveryTimes, args.ServerName)
+		fmt.Println("recovery complete!")
 	}
 
 	return nil

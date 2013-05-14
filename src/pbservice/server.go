@@ -866,8 +866,8 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
     shards[shard] = true
   }
 
-  // number of bytes pulled over the wire
-  dataRecieved := 0
+  // number of bytes pulled over the wire for each shard
+  dataRecieved := map[int]int{}
 
   for {
 
@@ -920,7 +920,7 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
               recoveryMu.Lock()
               // fmt.Printf("%s recovered segment %d from %s for %s:%d \n", pb.me, seg, backup, mainPrimary, shard)
               recovered := pullSegmentsReply.Segments[0]
-              dataRecieved += recovered.Size
+              dataRecieved[shard] = dataRecieved[shard] + recovered.Size
               segmentsRecovered[seg] = &recovered
               delete(segmentsInProcess, seg)
               recoveryMu.Unlock()
@@ -1011,7 +1011,7 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 
       if seenAll {
         delete(recoveryData, shard)
-        pb.clerk.RecoveryCompleted(pb.me, shard, dataRecieved)
+        pb.clerk.RecoveryCompleted(pb.me, shard, dataRecieved[shard])
       }
 
     }
