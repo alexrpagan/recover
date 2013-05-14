@@ -880,12 +880,12 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
       for seg, backups := range segsToBackups {  // and each log segment needed to recover that shard
 
         recoveryMu.Lock()
-        _, recovered := segmentsRecovered[seg]
+        // _, recovered := segmentsRecovered[seg]
         recoveryTime, inProcess := segmentsInProcess[seg]
         recoveryMu.Unlock()
 
         // ten second timeout on single shard.
-        if (!inProcess || time.Since(recoveryTime) >= 10 * time.Second) && !recovered {
+        if (!inProcess || time.Since(recoveryTime) >= 10 * time.Second) {
 
           recoveryMu.Lock()
           segmentsInProcess[seg] = time.Now()
