@@ -705,14 +705,18 @@ func (pb *PBServer) broadcastFlush(segment int64, group BackupGroup) bool {
 func (pb *PBServer) tick() {
 	view, serversAlive, err := pb.clerk.Ping(pb.view.ViewNumber)
   if err == nil {
-  	pb.mu.Lock()
-
-    pb.view = view
-    pb.serversAlive = serversAlive
-
-    pb.mu.Unlock()
+    // don't bother waiting for the lock.
+    go func() {
+      // fmt.Println("tick lock", pb.me)
+      pb.mu.Lock()
+      // fmt.Println("tick acq", pb.me)
+      if pb.view.ViewNumber < view.ViewNumber {
+        pb.view = view
+        pb.serversAlive = serversAlive
+      }
+      pb.mu.Unlock()
+    }()
   }
-
 }
 
 
