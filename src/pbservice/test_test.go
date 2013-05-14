@@ -73,7 +73,7 @@ func Test1(t *testing.T) {
 
   fmt.Println("sending out some puts")
 
-  iters := 100
+  iters := 1000
 
   times := make([]int64, iters)
 

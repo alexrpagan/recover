@@ -61,6 +61,7 @@ type PBServer struct {
   store map[string]*Op
 
   // backup buffers: map each server to a Segment.
+  backupMu sync.Mutex
   buffers map[string]*Segment
 
   // which segs am I responsible for?
@@ -465,8 +466,8 @@ func (pb *PBServer) enlistReplicas(segment Segment) bool {
 
 
 func (pb *PBServer) EnlistReplica(args *EnlistReplicaArgs, reply *EnlistReplicaReply) error {
-  pb.mu.Lock()
-  defer pb.mu.Unlock()
+  pb.backupMu.Lock()
+  defer pb.backupMu.Unlock()
 
   segID  := args.Segment.ID
   origin := args.Origin
@@ -507,8 +508,8 @@ func (pb *PBServer) EnlistReplica(args *EnlistReplicaArgs, reply *EnlistReplicaR
 }
 
 func (pb *PBServer) FlushSeg(args *FlushSegArgs, reply *FlushSegReply) error {
-  pb.mu.Lock()
-  defer pb.mu.Unlock()
+  pb.backupMu.Lock()
+  defer pb.backupMu.Unlock()
 
   err := pb.checkPrimary(args.Origin, args.OldSegment, "")
 
@@ -550,8 +551,8 @@ func (pb *PBServer) FlushSeg(args *FlushSegArgs, reply *FlushSegReply) error {
 }
 
 func (pb *PBServer) ForwardOp(args *ForwardOpArgs, reply *ForwardOpReply) error {
-  pb.mu.Lock()
-  defer pb.mu.Unlock()
+  pb.backupMu.Lock()
+  defer pb.backupMu.Unlock()
 
   seg    := args.Segment
   origin := args.Origin
@@ -703,11 +704,13 @@ func (pb *PBServer) broadcastFlush(segment int64, group BackupGroup) bool {
 func (pb *PBServer) tick() {
   pb.mu.Lock()
   defer pb.mu.Unlock()
+
 	view, serversAlive, err := pb.clerk.Ping(pb.view.ViewNumber)
   if err == nil {
     pb.view = view
     pb.serversAlive = serversAlive
   }
+
 }
 
 
@@ -810,7 +813,9 @@ func (pb *PBServer) PullSegmentsByShards(args *PullSegmentsByShardsArgs, reply *
   for i, segId := range args.Segments {
     wg.Add(1)
     go func(i int, segId int64) {
+      pb.backupMu.Lock()
       buf, ok := pb.buffers[args.Owner]
+      pb.backupMu.Unlock()
 
       oldSeg := &Segment{}
       newSeg := Segment{}
@@ -855,9 +860,10 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
     shards[shard] = true
   }
 
-  fmt.Println(recoveryData)
 
   for {
+
+    fmt.Println(recoveryData)
 
     for shard, segsToBackups := range recoveryData {  // for each shard that we're tasked with recovering
 
@@ -910,10 +916,9 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
               delete(segmentsInProcess, seg)
               recoveryMu.Unlock()
 
-              pb.mu.Lock()
               for _, newOp := range recovered.Ops {
 
-                fmt.Println("processing op ", pb.me)
+                pb.mu.Lock()
 
                 op := newOp
 
@@ -928,8 +933,6 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
                   }
                 }
 
-                // TODO: this is probably wrong. fix.
-
                 // update primary's clock
                 if maxOpID < op.Version {
                   pb.log.CurrOpID = op.Version
@@ -940,6 +943,16 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 
                 seg, _ := pb.log.getCurrSegment()
                 group, ok := pb.backups[seg.ID]
+
+                newGroup := make([]string, 0)
+                for _, srv := range group.Backups {
+                  _, dead := args.DeadPrimaries[srv]
+                  if dead == false {
+                    newGroup = append(newGroup, srv)
+                  }
+                }
+
+                group.Backups = newGroup
 
                 // normal put codepath
                 flushed := false
@@ -963,8 +976,9 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
                 } else {
                   fmt.Println("backup failure on fwd")
                 }
+
+                pb.mu.Unlock()
               }
-              pb.mu.Unlock()
 
             }
 
@@ -1014,6 +1028,7 @@ func (pb *PBServer) md5Digest(name string) string {
 // tell the server to shut itself down.
 // please do not change this function.
 func (pb *PBServer) kill() {
+  fmt.Println("kill ", pb.me)
   pb.dead = true
   pb.l.Close()
 }
