@@ -832,7 +832,7 @@ func (pb *PBServer) PullSegmentsByShards(args *PullSegmentsByShardsArgs, reply *
         oldSeg := &Segment{}
         fname := strconv.Itoa(int(segId))
         oldSeg.slurp(path.Join(SegPath, pb.meHash, pb.md5Digest(args.Owner), fname))
-        fmt.Println("Pulled from disk", segId, segId.Size)
+        fmt.Println("Pulled from disk", segId, oldSeg.Size)
       }
 
       // // filter out operations from irrelevant shards
