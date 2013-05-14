@@ -868,9 +868,6 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
     shards[shard] = true
   }
 
-  // number of bytes pulled over the wire for each shard
-  dataRecieved := map[int]int{}
-
   for {
 
     // fmt.Println(recoveryData)
@@ -880,12 +877,12 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
       for seg, backups := range segsToBackups {  // and each log segment needed to recover that shard
 
         recoveryMu.Lock()
-        // _, recovered := segmentsRecovered[seg]
+        _, recovered := segmentsRecovered[seg]
         recoveryTime, inProcess := segmentsInProcess[seg]
         recoveryMu.Unlock()
 
         // ten second timeout on single shard.
-        if (!inProcess || time.Since(recoveryTime) >= 10 * time.Second) {
+        if (!inProcess || time.Since(recoveryTime) >= 10 * time.Second) && !recovered {
 
           recoveryMu.Lock()
           segmentsInProcess[seg] = time.Now()
@@ -920,7 +917,6 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
             if ok1 {
 
               recoveryMu.Lock()
-              fmt.Printf("%s recovered segment %d from %s for %s:%d \n", pb.me, seg, backup, mainPrimary, shard)
               recovered := pullSegmentsReply.Segments[0]
               segmentsRecovered[seg] = &recovered
               delete(segmentsInProcess, seg)
@@ -929,7 +925,6 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
               for _, newOp := range recovered.Ops {
 
                 recoveryMu.Lock()
-                dataRecieved[shard] = dataRecieved[shard] + newOp.size()
                 recoveryMu.Unlock()
 
                 pb.mu.Lock()
@@ -1015,8 +1010,15 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
       }
 
       if seenAll {
+        total := 0
+        for _, seg := range segmentsRecovered {
+          _, ok := segsToBackups[seg.ID]
+          if ok {
+            total += seg.Size
+          }
+        }
         delete(recoveryData, shard)
-        pb.clerk.RecoveryCompleted(pb.me, shard, dataRecieved[shard])
+        pb.clerk.RecoveryCompleted(pb.me, shard, total)
       }
 
     }
