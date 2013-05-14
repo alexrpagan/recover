@@ -82,15 +82,10 @@ func main() {
     case 0:
       //round of puts
       for i:=0; i < iters; i++ {
-        fmt.Println(i)
         t1 := time.Now().UnixNano()
-        ck.Put(fmt.Sprintf("%d", i), fmt.Sprintf("%cvalue",48 + rand.Intn(122-48)))
+        ck.Put(fmt.Sprintf("%d", i), fmt.Sprintf("%c four score and seven years",48 + rand.Intn(122-48)))
         t2 := time.Now().UnixNano()
         times[i] = t2-t1
-
-        if i % 100 == 0 {
-          fmt.Println("finished ", i)
-        }
       }
       printStats(times)
 
