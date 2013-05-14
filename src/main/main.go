@@ -20,6 +20,7 @@ var port = ":5000"
 
 // turn on profiling
 var cpuprofile = flag.String("prof", "", "write cpu profile to file")
+var repl       = flag.Bool("repl", false, "run a repl")
 var me         = flag.Int("me", -1, "who am I")
 var bench      = flag.Int("bench", -1, "run a benchmark")
 
@@ -60,7 +61,7 @@ func printStats(samples []int64) {
 
 func main() {
 
-  runtime.GOMAXPROCS(16)
+  runtime.GOMAXPROCS(8)
 
   flag.Parse()
   block := make(chan int)
@@ -76,7 +77,7 @@ func main() {
     fmt.Println("running benchmark ", *bench)
 
     ck := pbservice.MakeClerk("", hosts[0] + port, mode)
-    iters := 10000
+    iters := 20000
     times := make([]int64, iters)
 
     switch *bench {
