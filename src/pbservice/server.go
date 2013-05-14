@@ -842,7 +842,7 @@ func (pb *PBServer) PullSegmentsByShards(args *PullSegmentsByShardsArgs, reply *
       // }
 
       // segments[i] = newSeg
-      segments[i] = oldSeg
+      segments[i] = *oldSeg
       wg.Done()
     }(i, segId)
   }
