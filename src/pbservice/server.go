@@ -824,7 +824,6 @@ func (pb *PBServer) PullSegmentsByShards(args *PullSegmentsByShardsArgs, reply *
       pb.backupMu.Unlock()
 
       oldSeg := &Segment{}
-      // newSeg := Segment{}
 
       if ok && buf.ID == segId {
         oldSeg = buf
@@ -834,15 +833,15 @@ func (pb *PBServer) PullSegmentsByShards(args *PullSegmentsByShardsArgs, reply *
         fmt.Println("Pulled from disk", segId, oldSeg.Size)
       }
 
-      // // filter out operations from irrelevant shards
-      // for _, op := range oldSeg.Ops {
-      //   if args.Shards[key2shard(op.Key)] {
-      //     newSeg.append(op)
-      //   }
-      // }
+      newSeg := Segment{}
+      // filter out operations from irrelevant shards
+      for _, op := range oldSeg.Ops {
+        if args.Shards[key2shard(op.Key)] {
+          newSeg.append(op)
+        }
+      }
 
-      // segments[i] = newSeg
-      segments[i] = *oldSeg
+      segments[i] = newSeg
       wg.Done()
     }(i, segId)
   }
@@ -866,6 +865,8 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
   for shard, _ := range recoveryData {
     shards[shard] = true
   }
+
+  recoveredData := make(map[int]int)
 
   for {
 
@@ -924,6 +925,7 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
               for _, newOp := range recovered.Ops {
 
                 recoveryMu.Lock()
+                recoveredData[shard] = recoveredData[shard] + newOp.size()
                 recoveryMu.Unlock()
 
                 pb.mu.Lock()
@@ -1009,16 +1011,8 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
       }
 
       if seenAll {
-        total := 0
-        for _, seg := range segmentsRecovered {
-          _, ok := segsToBackups[seg.ID]
-          if ok {
-            fmt.Println("recovered", seg.ID, seg.Size)
-            total += seg.Size
-          }
-        }
         delete(recoveryData, shard)
-        pb.clerk.RecoveryCompleted(pb.me, shard, total)
+        pb.clerk.RecoveryCompleted(pb.me, shard, recoveredData[shard])
       }
 
     }
