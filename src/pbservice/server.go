@@ -699,13 +699,14 @@ func (pb *PBServer) broadcastFlush(segment int64, group BackupGroup) bool {
 
 
 func (pb *PBServer) tick() {
-  pb.mu.Lock()
-  defer pb.mu.Unlock()
-
 	view, serversAlive, err := pb.clerk.Ping(pb.view.ViewNumber)
   if err == nil {
+  	pb.mu.Lock()
+  	
     pb.view = view
     pb.serversAlive = serversAlive
+    
+    pb.mu.Unlock()
   }
 
 }
@@ -926,6 +927,7 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
                   // if the version of the key in the data store is more up-to-date,
                   // don't bother processing the recovered operation.
                   if currOp.Version > op.Version {
+                  	pb.mu.Unlock()
                     continue
                   }
                 }
