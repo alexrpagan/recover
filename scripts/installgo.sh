@@ -1,15 +1,15 @@
 #!/bin/bash
 set -e
 
-user="apagan"
+user="ubuntu"
 
+
+# while read host; do
+#     scp -i 6824.pem /tmp/go.tar.gz $user@$host:~
+# done < servers
 
 while read host; do
-    scp /tmp/go.tar.gz $user@$host:~
-done < servers
-
-while read host; do
-    ssh $user@$host "tar xzf go.tar.gz && cd go/src && ./all.bash" &
+    ssh -i 6824.pem $user@$host "sudo apt-get -y install gcc git golang "&
 done < servers
 
 wait
