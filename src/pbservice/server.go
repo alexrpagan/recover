@@ -918,7 +918,7 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
             if ok1 {
 
               recoveryMu.Lock()
-              // fmt.Printf("%s recovered segment %d from %s for %s:%d \n", pb.me, seg, backup, mainPrimary, shard)
+              fmt.Printf("%s recovered segment %d from %s for %s:%d \n", pb.me, seg, backup, mainPrimary, shard)
               recovered := pullSegmentsReply.Segments[0]
               segmentsRecovered[seg] = &recovered
               delete(segmentsInProcess, seg)
