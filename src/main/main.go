@@ -137,6 +137,7 @@ func main() {
         }
       }
     }
+    os.Exit(0)
   }
 
 
@@ -186,19 +187,21 @@ func main() {
       printStats(times)
     }
 
-    block <- 1
+    os.Exit(0)
   }
 
 
   if *me == 0 {
 
     go func() {
+      fmt.Println("Starting Viewserver on ", hosts[0] + port)
       viewservice.StartMe(hosts[0] + port, mode)
     }()
 
   } else if *me > 0 && *me < len(hosts) {
 
     go func() {
+      fmt.Println("Starting KV Server on ", hosts[*me] + port)
       pbservice.StartMe(hosts[*me] + port, hosts[0] + port, mode)
     }()
 
