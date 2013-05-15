@@ -75,7 +75,7 @@ func (ck *Clerk) Get() (View, bool) {
 func (ck *Clerk) Status() StatusReply {
   args  := &StatusArgs{}
   reply := &StatusReply{}
-  call(ck.server, "ViewServer.Get", ck.networkMode, args, reply)
+  call(ck.server, "ViewServer.Status", ck.networkMode, args, reply)
   return *reply
 }
 
