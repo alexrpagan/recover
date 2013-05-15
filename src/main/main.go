@@ -145,7 +145,7 @@ func main() {
             }
           case "SHOWSHARD":
             if len(input) == 2 {
-              fmt.Printf("Key '%s' belongs to shard %d.\n", ck.WhichShard(input[1]))
+              fmt.Printf("Key '%s' belongs to shard %d.\n", input[1], ck.WhichShard(input[1]))
             }
           case "VIEW":
             view := ck.GetView()
