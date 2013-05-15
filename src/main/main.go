@@ -9,7 +9,6 @@ import (
   "pbservice"
   "os"
   "time"
-  "math/rand"
   "bytes"
   "bufio"
   "strings"
@@ -161,6 +160,62 @@ func main() {
             fmt.Println(ck.Status().ServersAlive)
           case "KILL":
             fmt.Println("kill")
+          case "GETS":
+            msg := "Executing a bunch of gets."
+            if len(input) == 2 {
+              fmt.Println("STARTING: ", msg)
+              numofgets, err := strconv.Atoi(input[1])
+              if err == nil {
+                go func() {
+                  times := make([]int64, numofgets)
+                  for i:=0; i < numofgets; i++ {
+                    strkey := fmt.Sprintf("%d", i)
+                    t1 := time.Now().UnixNano()
+                    val := ck.Get(strkey)
+                    t2 := time.Now().UnixNano()
+                    if len(val) > 0 && val != "errnokey" {
+                      //no op
+                    } else {
+                      fmt.Printf("Lost write for key: %s, shard: %d\n", strkey, ck.WhichShard(strkey))
+                    }
+                    times[i] = t2-t1
+                  }
+                  fmt.Println("DONE: ", msg)
+                  printStats(times)
+                }()
+              } else {
+                fmt.Println("err parsing args.")
+              }
+            }
+          case "PUTS":
+            msg := "Executing a bunch of puts."
+            if len(input) == 3 {
+              fmt.Println("STARTING: ", msg)
+              valsize, err1   := strconv.Atoi(input[1])
+              numofputs, err2 := strconv.Atoi(input[2])
+              if err1 == nil && err2 == nil {
+                go func() {
+                  times := make([]int64, numofputs)
+                  ck := pbservice.MakeClerk("", vshostname, mode)
+                  var buffer bytes.Buffer
+                  for i:=0; i < valsize ; i++ {
+                    buffer.WriteString("a")
+                  }
+                  valbase := buffer.String()
+                  for i:=0; i < numofputs; i++ {
+                    t1 := time.Now().UnixNano()
+                    ck.Put(fmt.Sprintf("%d", i), fmt.Sprintf("%s", valbase))
+                    t2 := time.Now().UnixNano()
+                    times[i] = t2-t1
+                  }
+                  fmt.Println("DONE: ", msg)
+                  printStats(times)
+                }()
+              } else {
+                fmt.Println("err parsing args.")
+              }
+
+            }
           case "QUIT":
             os.Exit(0)
           }
@@ -169,57 +224,6 @@ func main() {
     }
     os.Exit(0)
   }
-
-
-  if *bench >= 0 {
-
-    fmt.Println("running benchmark ", *bench)
-
-    ck := pbservice.MakeClerk("", vshostname, mode)
-    iters := 20000
-    times := make([]int64, iters)
-
-    switch *bench {
-    case 0:
-      //round of puts
-      var buffer bytes.Buffer
-      for i:=0; i < 8 * 1024 * 100; i++ {
-        buffer.WriteString("a")
-      }
-      valbase := buffer.String()
-
-      for i:=0; i < iters; i++ {
-        t1 := time.Now().UnixNano()
-        ck.Put(fmt.Sprintf("%d", i), fmt.Sprintf("%c%s",48 + rand.Intn(122-48), valbase))
-        t2 := time.Now().UnixNano()
-        times[i] = t2-t1
-        if i % 100 == 0 {
-          fmt.Println("finished ", i)
-        }
-      }
-      printStats(times)
-
-    case 1:
-      for i:=0; i < iters; i++ {
-        t1 := time.Now().UnixNano()
-        val := ck.Get(fmt.Sprintf("%d", i % 10))
-        if len(val) > 0 && val != "errnokey" {
-          //no op
-        } else {
-          fmt.Println("failure!")
-        }
-        if i % 100 == 0 {
-          fmt.Println("finished ", i)
-        }
-        t2 := time.Now().UnixNano()
-        times[i] = t2-t1
-      }
-      printStats(times)
-    }
-
-    os.Exit(0)
-  }
-
 
   if *me == 0 {
 
