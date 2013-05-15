@@ -79,7 +79,7 @@ func readHosts() []string {
     if err != nil {
       break
     }
-    hosts = append(hosts, str)
+    hosts = append(hosts, strings.Trim(str, " \n"))
   }
   return hosts
 }
