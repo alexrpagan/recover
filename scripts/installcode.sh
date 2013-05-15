@@ -9,7 +9,7 @@ while read host; do
                       && rm -rf xfertest \
                       && git clone https://github.com/alexrpagan/xfertest.git \
                       && cd xfertest/src/main \
-                      && GOPATH=../.. ~/go/bin/go build " &
+                      && GOPATH=../.. ~/go/bin/go build -o xfer" &
 done < servers
 
 wait

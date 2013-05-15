@@ -26,6 +26,7 @@ var cpuprofile = flag.String("prof", "", "write cpu profile to file")
 var repl       = flag.Bool("repl", false, "run a repl")
 var me         = flag.Int("me", -1, "who am I")
 var bench      = flag.Int("bench", -1, "run a benchmark")
+var hostfile   = flag.String("hosts", "", "File containing the names of servers in the cluster")
 
 
 func printStats(samples []int64) {
@@ -55,11 +56,20 @@ func reportError(error interface{}) {
 
 func readHosts() []string {
   hosts := make([]string, 0)
-  cwd, err := os.Getwd()
-  if err != nil {
-    reportError(err)
+
+  var filepath string
+
+  if *hostfile == "" {
+    cwd, err := os.Getwd()
+    if err != nil {
+      reportError(err)
+    }
+    filepath = path.Join(cwd, "../../scripts/servers")
+  } else {
+    filepath = *hostfile
   }
-  f, err := os.Open(path.Join(cwd, "../../scripts/servers"))
+
+  f, err := os.Open(filepath)
   if err != nil {
     reportError(err)
   }
@@ -119,11 +129,14 @@ func main() {
             fmt.Println("status")
           case "KILL":
             fmt.Println("status")
+          case "QUIT":
+            os.Exit(0)
           }
         }
       }
     }
   }
+
 
   if *bench >= 0 {
 
