@@ -11,6 +11,9 @@ import (
   "time"
   "math/rand"
   "bytes"
+  "bufio"
+  "strings"
+  "path"
 )
 
 var vs_idx = 0
@@ -23,17 +26,6 @@ var cpuprofile = flag.String("prof", "", "write cpu profile to file")
 var repl       = flag.Bool("repl", false, "run a repl")
 var me         = flag.Int("me", -1, "who am I")
 var bench      = flag.Int("bench", -1, "run a benchmark")
-
-var hosts = []string{ "ec2-184-72-166-194.compute-1.amazonaws.com",
-                      "ec2-23-20-132-169.compute-1.amazonaws.com",
-                      "ec2-184-73-58-176.compute-1.amazonaws.com",
-                      "ec2-107-21-173-100.compute-1.amazonaws.com",
-                      "ec2-23-22-234-159.compute-1.amazonaws.com",
-                      "ec2-54-224-151-239.compute-1.amazonaws.com",
-                      "ec2-72-44-46-122.compute-1.amazonaws.com",
-                      "ec2-54-242-209-195.compute-1.amazonaws.com",
-                      "ec2-50-16-130-137.compute-1.amazonaws.com",
-                      "ec2-54-242-42-105.compute-1.amazonaws.com" }
 
 
 func printStats(samples []int64) {
@@ -52,11 +44,34 @@ func printStats(samples []int64) {
       min = val
     }
   }
-
   fmt.Printf("Avg time (micros) %d\n", sum/int64(n*1000))
   fmt.Printf("Min %d\n", min/int64(1000))
   fmt.Printf("Max %d\n", max/int64(1000))
+}
 
+func reportError(error interface{}) {
+  fmt.Printf("Error opening hosts file: %v", error)
+}
+
+func readHosts() []string {
+  hosts := make([]string, 0)
+  cwd, err := os.Getwd()
+  if err != nil {
+    reportError(err)
+  }
+  f, err := os.Open(path.Join(cwd, "../../scripts/servers"))
+  if err != nil {
+    reportError(err)
+  }
+  reader := bufio.NewReader(f)
+  for {
+    str, err := reader.ReadString('\n')
+    if err != nil {
+      break
+    }
+    hosts = append(hosts, str)
+  }
+  return hosts
 }
 
 func main() {
@@ -70,6 +85,44 @@ func main() {
     f, _ := os.Create(*cpuprofile)
     pprof.StartCPUProfile(f)
     defer pprof.StopCPUProfile()
+  }
+
+  hosts := readHosts()
+
+  if *repl {
+    reader := bufio.NewReader(os.Stdin)
+    ck := pbservice.MakeClerk("", hosts[0] + port, mode)
+    for {
+      fmt.Printf("> ")
+      str, err := reader.ReadString('\n')
+      if err == nil {
+        input := strings.Fields(str)
+        if len(input) > 0 {
+          switch strings.ToUpper(input[0]) {
+          case "GET":
+            if len(input) == 2 {
+              t1 := time.Now().UnixNano()
+              val := ck.Get(input[1])
+              t2 := time.Now().UnixNano()
+              fmt.Println(val)
+              fmt.Println("(ran in %d ms)", float32(t2-t1)/float32(1000 * 1000))
+            }
+          case "PUT":
+            if len(input) == 3 {
+              // TODO: error handling
+              t1 := time.Now().UnixNano()
+              ck.Put(input[1], input[2])
+              t2 := time.Now().UnixNano()
+              fmt.Println("(ran in %d ms)", float32(t2-t1)/float32(1000 * 1000))
+            }
+          case "STATUS":
+            fmt.Println("status")
+          case "KILL":
+            fmt.Println("status")
+          }
+        }
+      }
+    }
   }
 
   if *bench >= 0 {
@@ -104,22 +157,18 @@ func main() {
       for i:=0; i < iters; i++ {
         t1 := time.Now().UnixNano()
         val := ck.Get(fmt.Sprintf("%d", i % 10))
-
         if len(val) > 0 && val != "errnokey" {
           //no op
         } else {
           fmt.Println("failure!")
         }
-
         if i % 100 == 0 {
           fmt.Println("finished ", i)
         }
-
         t2 := time.Now().UnixNano()
         times[i] = t2-t1
       }
       printStats(times)
-
     }
 
     block <- 1

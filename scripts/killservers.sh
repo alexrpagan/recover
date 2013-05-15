@@ -1,3 +1,3 @@
 #!/bin/bash
 
-for i in `pgrep -f 'go run main.go'`; do kill $i; done
+for i in `pgrep -f 'code/xfertest/src/main/main'`; do kill $i; done
