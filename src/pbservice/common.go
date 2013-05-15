@@ -104,12 +104,12 @@ type PullSegmentsReply struct {
 
 type PullSegmentsByShardsArgs struct {
   Owner string
-	Shards map[int] bool
-	Segments []int64
+  Shards map[int] bool
+  Segments []int64
 }
 
 type PullSegmentsByShardsReply struct {
-	Segments []Segment
+  Segments []Segment
 }
 
 
