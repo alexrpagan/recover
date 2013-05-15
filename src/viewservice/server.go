@@ -1,10 +1,3 @@
-/*
-*********************
-Package and Imports
-*********************
-*/
-
-
 package viewservice
 
 import (
