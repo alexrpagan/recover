@@ -1,4 +1,4 @@
-package pbservice
+ublackage pbservice
 
 import (
   "net"
@@ -707,7 +707,7 @@ func (pb *PBServer) broadcastFlush(segment int64, group BackupGroup) bool {
 
 
 func (pb *PBServer) tick() {
-	view, serversAlive, err := pb.clerk.Ping(pb.view.ViewNumber)
+  view, serversAlive, err := pb.clerk.Ping(pb.view.ViewNumber)
   if err == nil {
     // don't bother waiting for the lock.
     go func() {
@@ -801,19 +801,19 @@ func (pb *PBServer) TestPullSegments(args *TestPullSegmentsArgs, reply *TestPull
 func (pb *PBServer) QuerySegments(args *QuerySegmentsArgs, reply *QuerySegmentsReply) error {
 
   // subset of backedUpSegs relevant to query
-	relevant := make(map[string]map[int64]map[int]bool)
+  relevant := make(map[string]map[int64]map[int]bool)
 
-	for dead, _ := range args.DeadPrimaries {
+  for dead, _ := range args.DeadPrimaries {
     segMap, ok := pb.backedUpSegs[dead]
     if ok {
       relevant[dead] = segMap
     }
-	}
+  }
 
   reply.ServerName = pb.me
   reply.BackedUpSegments = relevant
 
-	return nil
+  return nil
 }
 
 
@@ -943,7 +943,7 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
                   // if the version of the key in the data store is more up-to-date,
                   // don't bother processing the recovered operation.
                   if currOp.Version > op.Version {
-                  	pb.mu.Unlock()
+                    pb.mu.Unlock()
                     continue
                   }
                 }
@@ -1030,7 +1030,7 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
   }
 
 
-	return nil
+  return nil
 }
 
 

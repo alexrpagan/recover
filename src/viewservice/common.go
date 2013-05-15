@@ -11,31 +11,31 @@ const CRITICAL_MASS = 5
 const NUMBER_OF_SHARDS = 100
 
 type View struct {
-	ViewNumber uint
-	ShardsToPrimaries map[int] string		// shard #{shard index} -> primary
+  ViewNumber uint
+  ShardsToPrimaries map[int] string    // shard #{shard index} -> primary
 }
 
 type PingArgs struct {
-	ServerName string
-	ViewNumber uint
+  ServerName string
+  ViewNumber uint
 }
 
 type PingReply struct {
-	View View
-	ServersAlive map[string] bool			// set of servers primaries can choose as backups
+  View View
+  ServersAlive map[string] bool      // set of servers primaries can choose as backups
 }
 
 type GetArgs struct {
 }
 
 type GetReply struct {
-	View View
+  View View
 }
 
 type RecoveryCompletedArgs struct {
-	ServerName string
-	ShardRecovered int
-	DataRecieved int
+  ServerName string
+  ShardRecovered int
+  DataRecieved int
 }
 
 type RecoveryCompletedReply struct {

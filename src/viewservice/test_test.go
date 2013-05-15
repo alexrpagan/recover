@@ -59,8 +59,8 @@ func Test1(t *testing.T) {
       num = 0
       for {
         view,_,_ := ck[vi].Ping(num)
-	num = view.ViewNumber
-      	time.Sleep(PING_INTERVAL)
+        num = view.ViewNumber
+        time.Sleep(PING_INTERVAL)
       }
     }(i)
   }
@@ -69,7 +69,7 @@ func Test1(t *testing.T) {
       num = 0
       for j := 0; j< DEAD_PINGS * 3; j++ {
         view,_,_ := ck[len(ck)-2].Ping(num)
-	num = view.ViewNumber
+        num = view.ViewNumber
       time.Sleep(PING_INTERVAL)
       }
     }()
@@ -78,8 +78,8 @@ func Test1(t *testing.T) {
       num = 0
       for j := 0; j< DEAD_PINGS * 10; j++ {
         view,_,_ := ck[len(ck)-3].Ping(num)
-	num = view.ViewNumber
-      	time.Sleep(PING_INTERVAL)
+        num = view.ViewNumber
+        time.Sleep(PING_INTERVAL)
       }
     }()
   time.Sleep(PING_INTERVAL*DEAD_PINGS*2)
@@ -125,8 +125,8 @@ func Test1(t *testing.T) {
       num = 0
       for {
         view,_,_ := ck[vi].Ping(num)
-	num = view.ViewNumber
-      	time.Sleep(PING_INTERVAL)
+        num = view.ViewNumber
+        time.Sleep(PING_INTERVAL)
       }
     }(len(ck)-i)
   }
