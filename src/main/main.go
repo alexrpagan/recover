@@ -125,8 +125,10 @@ func main() {
               t2 := time.Now().UnixNano()
               fmt.Println("(ran in %d ms)", float32(t2-t1)/float32(1000 * 1000))
             }
+          case "VIEW":
+            fmt.Println(ck.GetView())
           case "STATUS":
-            fmt.Println("status")
+            fmt.Println(ck.Status())
           case "KILL":
             fmt.Println("status")
           case "QUIT":

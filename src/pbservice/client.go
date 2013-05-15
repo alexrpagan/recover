@@ -132,6 +132,15 @@ func (ck *Clerk) Put(key string, value string) {
 
 }
 
+func (ck *Clerk) GetView() viewservice.View {
+   ck.updateView()
+   return ck.view
+}
+
+func (ck *Clerk) Status() viewservice.StatusReply {
+  return ck.vs.Status()
+}
+
 func (ck *Clerk) updateView() {
   view,_ := ck.vs.Get()
   ck.view = view

@@ -51,6 +51,18 @@ func (vs *ViewServer) Get(args *GetArgs, reply *GetReply) error {
 
 }
 
+func (vs *ViewServer) Status(args *StatusArgs, reply *StatusReply) error {
+  vs.mu.Lock()
+  defer vs.mu.Unlock()
+
+  reply.ServersAlive      = vs.serversAlive
+  reply.ServerPings       = vs.serverPings
+  reply.PrimaryServers    = vs.primaryServers
+  reply.RecoveryInProcess = vs.recoveryInProcess
+  reply.RecoveryMasters   = vs.recoveryMasters
+
+  return nil
+}
 
 // updates server states
 func (vs *ViewServer) Ping(args *PingArgs, reply *PingReply) error {

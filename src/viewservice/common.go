@@ -42,6 +42,18 @@ type RecoveryCompletedReply struct {
 
 }
 
+type StatusArgs struct {
+
+}
+
+type StatusReply struct {
+  ServerPings       map[string] time.Time
+  ServersAlive      map[string] bool
+  PrimaryServers    map[string] bool
+  RecoveryInProcess map[string][]int
+  RecoveryMasters   map[string]map[int]bool
+}
+
 
 //// RPCS from pbservice
 
