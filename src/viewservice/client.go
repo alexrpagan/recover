@@ -1,10 +1,3 @@
-/*
-*********************
-Package and Imports
-*********************
-*/
-
-
 package viewservice
 
 
@@ -12,17 +5,6 @@ import "net/rpc"
 import "fmt"
 
 
-/*
-*********************
-Unmodified Structures
-*********************
-*/
-
-
-//
-// the viewservice Clerk lives in the client
-// and maintains a little state.
-//
 type Clerk struct {
   me string      // client's name (host:port)
   server string  // viewservice's host:port
@@ -91,10 +73,10 @@ func (ck *Clerk) Get() (View, bool) {
 }
 
 func (ck *Clerk) Status() StatusReply {
-  args := &StatusArgs{}
-  var reply StatusReply
-  call(ck.server, "ViewServer.Get", ck.networkMode, args, &reply)
-  return reply
+  args  := &StatusArgs{}
+  reply := &StatusReply{}
+  call(ck.server, "ViewServer.Get", ck.networkMode, args, reply)
+  return *reply
 }
 
 
@@ -115,9 +97,3 @@ func (ck *Clerk) RecoveryCompleted(me string, shard int, size int) bool {
   return true
 }
 
-
-/*
-********************
-Utility Functions
-********************
-*/
