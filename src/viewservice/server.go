@@ -180,7 +180,7 @@ func (vs *ViewServer) recover(deadPrimaries map[string][]int) {
 
   numLiveServers := len(serversAliveCpy)
   queryReplies   := make([]*QuerySegmentsReply, numLiveServers)
-  acks            := make([]bool, numLiveServers)
+  acks           := make([]bool, numLiveServers)
 
   // query all live servers to see if they back up shards for failed primaries
   for idx, server := range serversAliveCpy {
