@@ -1,4 +1,4 @@
-ublackage pbservice
+package pbservice
 
 import (
   "net"
