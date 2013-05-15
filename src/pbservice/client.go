@@ -70,22 +70,13 @@ func (ck *Clerk) Get(key string) string {
     if ok {
       ack := call(primary, "PBServer.Get", ck.networkMode, args, &reply)
       if ack { break }
-
-      // TODO: handle extra errors here
     }
     ck.updateView()
     time.Sleep(viewservice.PING_INTERVAL)
   }
 
-  switch reply.Err {
-  case ErrNoKey:
-    fmt.Println("errnokey")
-  case ErrWrongServer:
-    fmt.Println("errwrongserver")
-  }
-
-  if reply.Err == ErrNoKey {
-    return ""
+  if reply.Err != OK {
+    fmt.Println("ERROR ", reply.Err)
   }
 
   return reply.Value
@@ -117,19 +108,19 @@ func (ck *Clerk) Put(key string, value string) {
     if ok {
       ack := call(primary, "PBServer.Put", ck.networkMode, args, &reply)
       if ack { break }
-
-      // TODO: handle extra errors here
     }
 
     ck.updateView()
     time.Sleep(viewservice.PING_INTERVAL)
   }
 
-  switch reply.Err {
-  case ErrWrongServer:
-    fmt.Println("errwrongserver")
+  if reply.Err != OK {
+    fmt.Println("ERROR ", reply.Err)
   }
+}
 
+func (ck *Clerk) WhichShard(key string) int {
+  return key2shard(key)
 }
 
 func (ck *Clerk) GetView() viewservice.View {

@@ -14,12 +14,14 @@ import (
   "bufio"
   "strings"
   "path"
+  "strconv"
 )
 
 var vs_idx = 0
 
 var mode = "tcp"
-var port = ":5000"
+var kvport = ":5000"
+var vsport = ":5001"
 
 // turn on profiling
 var cpuprofile = flag.String("prof", "", "write cpu profile to file")
@@ -27,7 +29,6 @@ var repl       = flag.Bool("repl", false, "run a repl")
 var me         = flag.Int("me", -1, "who am I")
 var bench      = flag.Int("bench", -1, "run a benchmark")
 var hostfile   = flag.String("hosts", "", "File containing the names of servers in the cluster")
-
 
 func printStats(samples []int64) {
   var sum int64 = 0
@@ -48,6 +49,10 @@ func printStats(samples []int64) {
   fmt.Printf("Avg time (micros) %d\n", sum/int64(n*1000))
   fmt.Printf("Min %d\n", min/int64(1000))
   fmt.Printf("Max %d\n", max/int64(1000))
+}
+
+func reportTiming(timing int64) {
+  fmt.Printf("[completed in %d ms]\n", float32(timing)/float32(1000 * 1000))
 }
 
 func reportError(error interface{}) {
@@ -99,9 +104,12 @@ func main() {
 
   hosts := readHosts()
 
+  vshostname := hosts[0] + vsport
+
   if *repl {
     reader := bufio.NewReader(os.Stdin)
-    ck := pbservice.MakeClerk("", hosts[0] + port, mode)
+    ck := pbservice.MakeClerk("", vshostname, mode)
+    timing := false  // show timing stats
     for {
       fmt.Printf("> ")
       str, err := reader.ReadString('\n')
@@ -115,22 +123,44 @@ func main() {
               val := ck.Get(input[1])
               t2 := time.Now().UnixNano()
               fmt.Println(val)
-              fmt.Println("(ran in %d ms)", float32(t2-t1)/float32(1000 * 1000))
+              if timing {
+                reportTiming(t2-t1)
+              }
             }
           case "PUT":
             if len(input) == 3 {
-              // TODO: error handling
               t1 := time.Now().UnixNano()
               ck.Put(input[1], input[2])
               t2 := time.Now().UnixNano()
-              fmt.Println("(ran in %d ms)", float32(t2-t1)/float32(1000 * 1000))
+              if timing {
+                reportTiming(t2-t1)
+              }
+            }
+          case "TIMING":
+            timing := !timing
+            if timing {
+              fmt.Println("Timing enabled.")
+            } else {
+              fmt.Println("Timing disabled.")
+            }
+          case "SHOWSHARD":
+            if len(input) == 2 {
+              fmt.Printf("Key '%s' belongs to shard %d.\n", ck.WhichShard(input[1]))
             }
           case "VIEW":
-            fmt.Println(ck.GetView())
+            view := ck.GetView()
+            if len(input) == 1 {
+              fmt.Println(view)
+            } else {
+              shard, err := strconv.Atoi(input[1])
+              if err == nil {
+                fmt.Println(view.ShardsToPrimaries[shard])
+              }
+            }
           case "STATUS":
-            fmt.Println(ck.Status())
+            fmt.Println(ck.Status().ServersAlive)
           case "KILL":
-            fmt.Println("status")
+            fmt.Println("kill")
           case "QUIT":
             os.Exit(0)
           }
@@ -145,7 +175,7 @@ func main() {
 
     fmt.Println("running benchmark ", *bench)
 
-    ck := pbservice.MakeClerk("", hosts[0] + port, mode)
+    ck := pbservice.MakeClerk("", vshostname, mode)
     iters := 20000
     times := make([]int64, iters)
 
@@ -194,15 +224,23 @@ func main() {
   if *me == 0 {
 
     go func() {
-      fmt.Println("Starting Viewserver on ", hosts[0] + port)
-      viewservice.StartMe(hosts[0] + port, mode)
+
+      // NODE 0 is special: start the viewserver too
+      fmt.Println("Starting Viewserver on ", vshostname)
+      viewservice.StartMe(vshostname, mode)
+
+      hostname := hosts[*me] + kvport
+      fmt.Println("Starting KV Server on ", hostname)
+      pbservice.StartMe(hostname, vshostname, mode)
+
     }()
 
   } else if *me > 0 && *me < len(hosts) {
 
     go func() {
-      fmt.Println("Starting KV Server on ", hosts[*me] + port)
-      pbservice.StartMe(hosts[*me] + port, hosts[0] + port, mode)
+      hostname := hosts[*me] + kvport
+      fmt.Println("Starting KV Server on ", hostname)
+      pbservice.StartMe(hostname, vshostname, mode)
     }()
 
   } else {
