@@ -164,7 +164,7 @@ func main() {
               srv, err := strconv.Atoi(input[1])
               if err == nil {
                 if srv >= 0 && srv < len(hosts) {
-                  ck.Kill(hosts[srv])
+                  ck.Kill(hosts[srv] + kvport)
                 } else {
                   fmt.Println("Server index out of bounds: ", srv)
                 }
