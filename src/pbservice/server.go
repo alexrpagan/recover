@@ -573,9 +573,7 @@ func (pb *PBServer) ForwardOp(args *ForwardOpArgs, reply *ForwardOpReply) error 
   buf, ok := pb.buffers[origin]
   if ok {
     res := buf.append(op)
-
     fmt.Println("Recieved op", op)
-
     pb.recordShardBackup(origin, seg, op)
     if res == false {
       fmt.Println("buffer size exceeded in replica. should never happen.")
@@ -879,6 +877,7 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
                   // if the version of the key in the data store is more up-to-date,
                   // don't bother processing the recovered operation.
                   if currOp.Version > op.Version {
+                    fmt.Println("Skipping op", currOp, op)
                     pb.mu.Unlock()
                     continue
                   }
@@ -924,6 +923,7 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
                 }
 
                 if flushed || pb.broadcastForward(op, seg.ID, group) {
+                  fmt.Println("processing op ", flushed)
                   pb.store[op.Key] = &op
                 } else {
                   fmt.Println("backup failure on fwd")
