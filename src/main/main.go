@@ -45,7 +45,7 @@ func printStats(samples []int64) {
       min = val
     }
   }
-  fmt.Printf("Avg time (micros) %d\n", sum/int64(n*1000))
+  fmt.Printf("\nAvg time (micros) %d\n", sum/int64(n*1000))
   fmt.Printf("Min %d\n", min/int64(1000))
   fmt.Printf("Max %d\n", max/int64(1000))
 }
@@ -159,7 +159,17 @@ func main() {
           case "STATUS":
             fmt.Println(ck.Status().ServersAlive)
           case "KILL":
-            fmt.Println("kill")
+            if len(input) == 2 {
+              fmt.Println("kill")
+              srv, err := strconv.Atoi(input[1])
+              if err == nil {
+                if srv >= 0 && srv < len(hosts) {
+                  ck.Kill(hosts[srv])
+                } else {
+                  fmt.Println("Server index out of bounds: ", srv)
+                }
+              }
+            }
           case "GETS":
             msg := "Executing a bunch of gets."
             if len(input) == 2 {
@@ -180,7 +190,7 @@ func main() {
                     }
                     times[i] = t2-t1
                   }
-                  fmt.Println("DONE: ", msg)
+                  fmt.Println("\nDONE: ", msg)
                   printStats(times)
                 }()
               } else {

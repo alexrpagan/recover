@@ -50,8 +50,6 @@ func call(srv string, rpcname string, networkMode string, args interface{}, repl
   return false
 }
 
-
-
 // get a value for the key from the pbservice
 func (ck *Clerk) Get(key string) string {
 
@@ -81,7 +79,6 @@ func (ck *Clerk) Get(key string) string {
 
   return reply.Value
 }
-
 
 // put a value for the key from the pbservice
 func (ck *Clerk) Put(key string, value string) {
@@ -117,7 +114,18 @@ func (ck *Clerk) Put(key string, value string) {
   if reply.Err != OK {
     fmt.Println("ERROR ", reply.Err)
   }
+
 }
+
+func (ck *Clerk) Kill(srv string) {
+  args  := KillArgs{}
+  reply := KillReply{}
+  ack := call(srv, "PBServer.Kill", ck.networkMode, args, &reply)
+  if ack == false {
+    fmt.Printf("Tried to kill %s; failed.\n", srv)
+  }
+}
+
 
 func (ck *Clerk) WhichShard(key string) int {
   return key2shard(key)

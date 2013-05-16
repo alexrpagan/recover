@@ -468,6 +468,11 @@ func (pb *PBServer) enlistReplicas(segment Segment) bool {
   return false
 }
 
+func (pb *PBServer) Kill(args *KillArgs, reply *KillReply) error {
+  pb.kill()
+  return nil
+}
+
 
 func (pb *PBServer) EnlistReplica(args *EnlistReplicaArgs, reply *EnlistReplicaReply) error {
   pb.backupMu.Lock()
@@ -723,79 +728,6 @@ func (pb *PBServer) tick() {
   }
 }
 
-
-// for performance testing. Isolate particular ops.
-func (pb *PBServer) TestWriteSegment(args *TestWriteSegmentArgs, reply *TestWriteSegmentReply) error {
-  var wg sync.WaitGroup
-  os.Mkdir(SegPath, 0777)
-  for i := 0; i < args.NumOfSegs; i++ {
-    wg.Add(1)
-    go func(i int) {
-      segment := Segment{}
-      segment.ID = int64(i)
-      for {
-        op := Op{}
-        op.Client = int64(0)
-        op.Request = int64(0)
-        op.Type = PutOp
-        op.Key = "foo foo foo foo foo foo foo foo foo foo"
-        op.Value = "bar bar bar bar bar bar bar bar bar bar"
-        if segment.append(op) == false {
-          break
-        }
-      }
-      fname := strconv.Itoa(i)
-      segment.burp(path.Join(SegPath, fname))
-      wg.Done()
-    }(i)
-  }
-  wg.Wait()
-  return nil
-}
-
-func (pb *PBServer) TestReadSegment(args *TestReadSegmentArgs, reply *TestReadSegmentReply) error {
-  var wg sync.WaitGroup
-  for i := 0; i < args.NumOfSegs; i++ {
-    wg.Add(1)
-    go func(i int) {
-      segment := Segment{}
-      fname := strconv.Itoa(i)
-      segment.slurp(path.Join(SegPath, fname))
-      wg.Done()
-    }(i)
-  }
-  wg.Wait()
-  return nil
-}
-
-func (pb *PBServer) TestPullSegments(args *TestPullSegmentsArgs, reply *TestPullSegmentsReply) error {
-  var wg sync.WaitGroup
-  t1 := time.Now().UnixNano()
-
-  for _, host := range args.Hosts {
-    if host == "" {
-      continue
-    }
-    for cnt:=0; cnt < 300; cnt++ {
-      wg.Add(1)
-      go func(host string) {
-        sendargs  := new(PullSegmentsArgs)
-        sendreply := new(PullSegmentsReply)
-        sendargs.Segments = make([]int64, 1)
-        sendargs.Segments[0] = int64(rand.Int63() % 30)
-        ok := call(host, "PBServer.PullSegments", pb.networkMode, sendargs, sendreply)
-        if ok {
-          fmt.Println("segment from", host)
-        }
-        wg.Done()
-      }(host)
-    }
-  }
-  wg.Wait()
-  t2 := time.Now().UnixNano()
-  fmt.Println(t2-t1)
-  return nil
-}
 
 // tell the viewserver which shards you have segments for and which segments you have
 func (pb *PBServer) QuerySegments(args *QuerySegmentsArgs, reply *QuerySegmentsReply) error {

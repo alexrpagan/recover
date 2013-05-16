@@ -138,6 +138,14 @@ type ElectRecoveryMasterReply struct {
 }
 
 
+type KillArgs struct {
+
+}
+
+type KillReply struct {
+
+}
+
 // TESTING----------------------------
 
 // TestSendSegment
