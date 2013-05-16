@@ -277,6 +277,12 @@ func (pb *PBServer) Put(args *PutArgs, reply *PutReply) error {
   pb.mu.Lock()
   defer pb.mu.Unlock()
 
+  shard := key2shard(args.Key)
+  if pb.view.ShardsToPrimaries[shard] != pb.me {
+    reply.Err = ErrWrongServer
+    return nil
+  }
+
   seg, _ := pb.log.getCurrSegment()
 
   group, ok := pb.backups[seg.ID]
@@ -311,12 +317,6 @@ func (pb *PBServer) Put(args *PutArgs, reply *PutReply) error {
   putOp.Key = args.Key
   putOp.Value = args.Value
   putOp.Version = pb.log.CurrOpID
-
-  shard := key2shard(putOp.Key)
-  if pb.view.ShardsToPrimaries[shard] != pb.me {
-    reply.Err = ErrWrongServer
-    return nil
-  }
 
   flushed := false
   if seg.append(*putOp) == false {
