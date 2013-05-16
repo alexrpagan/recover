@@ -51,7 +51,7 @@ func printStats(samples []int64) {
 }
 
 func reportTiming(timing int64) {
-  fmt.Printf("[completed in %d ms]\n", float32(timing)/float32(1000 * 1000))
+  fmt.Printf("[completed in %f ms]\n", float32(timing)/float32(1000 * 1000))
 }
 
 func reportError(error interface{}) {
@@ -136,7 +136,7 @@ func main() {
               }
             }
           case "TIMING":
-            timing := !timing
+            timing = !timing
             if timing {
               fmt.Println("Timing enabled.")
             } else {
@@ -160,7 +160,6 @@ func main() {
             fmt.Println(ck.Status().ServersAlive)
           case "KILL":
             if len(input) == 2 {
-              fmt.Println("kill")
               srv, err := strconv.Atoi(input[1])
               if err == nil {
                 if srv >= 0 && srv < len(hosts) {

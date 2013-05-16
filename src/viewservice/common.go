@@ -7,7 +7,7 @@ import "time"
 const PING_INTERVAL = time.Millisecond * 100
 const DEAD_PINGS = 12
 const REPLICATION_LEVEL = 3
-const CRITICAL_MASS = 5
+const CRITICAL_MASS = 6
 const NUMBER_OF_SHARDS = 100
 
 type View struct {
