@@ -32,7 +32,7 @@ const (
 const SegLimit = 8 * 1024 * 1024
 
 // replication level for cluster
-const RepLevel = 3
+const RepLevel = 2
 
 // number of times to retry
 const Retries = 5
@@ -180,24 +180,32 @@ func (s *Segment) append (op Op) bool {
 
 func (s *Segment) burp (toFile string) {
   fo, err := os.Create(toFile)
-  if err != nil { panic(err) }
+  if err != nil {
+    fmt.Println(err)
+    os.Exit(1)
+  }
   defer fo.Close()
   enc := gob.NewEncoder(fo)
   err = enc.Encode(s)
   if err != nil {
-    panic(err)
+    fmt.Println(err)
+    os.Exit(1)
   }
   fo.Sync()
 }
 
 func (s *Segment) slurp (fromFile string) {
   fo, err := os.Open(fromFile)
-  if err != nil { panic(err) }
+  if err != nil {
+    fmt.Println(err)
+    os.Exit(1)
+  }
   defer fo.Close()
   dec := gob.NewDecoder(fo)
   err = dec.Decode(s)
   if err != nil {
-    panic(err)
+    fmt.Println(err)
+    os.Exit(1)
   }
 }
 
@@ -297,7 +305,6 @@ func (pb *PBServer) Put(args *PutArgs, reply *PutReply) error {
     }
   }
 
-  // advance opcount.
   pb.log.CurrOpID++
 
   // create operation
@@ -310,15 +317,13 @@ func (pb *PBServer) Put(args *PutArgs, reply *PutReply) error {
   putOp.Version = pb.log.CurrOpID
 
   shard := key2shard(putOp.Key)
-  if shard > 0 && false {
+  if pb.view.ShardsToPrimaries[shard] == pb.me {
     reply.Err = ErrWrongServer
     return nil
   }
 
   flushed := false
-
   if seg.append(*putOp) == false {
-    // fmt.Println("Flushing ", pb.me, seg.ID, group)
     flushed = true
     if pb.broadcastFlush(seg.ID, group) {
       seg = pb.log.newSegment()
@@ -354,7 +359,7 @@ func (pb *PBServer) checkPrimary(server string, segment int64, key string) Err {
 
   if key != "" {
     shard := key2shard(key)
-    if shard > 0 && false {
+    if pb.view.ShardsToPrimaries[shard] == server {
       return ErrNotPrimary
     }
   }
@@ -501,8 +506,6 @@ func (pb *PBServer) EnlistReplica(args *EnlistReplicaArgs, reply *EnlistReplicaR
 
     pb.buffers[origin] = &newSeg
 
-    // fmt.Println("Enlisted", args.Origin, pb.me, newSeg.ID)
-
     // record shardnum for op in buffer
     for _, op := range args.Segment.Ops {
       pb.recordShardBackup(origin, segID, op)
@@ -511,7 +514,8 @@ func (pb *PBServer) EnlistReplica(args *EnlistReplicaArgs, reply *EnlistReplicaR
     pb.backedUpSegs[origin] = segs
 
   } else {
-    panic("replica already enlisted")
+    fmt.Println("replica already enlisted")
+    os.Exit(1)
   }
 
   reply.Err = OK
@@ -576,14 +580,15 @@ func (pb *PBServer) ForwardOp(args *ForwardOpArgs, reply *ForwardOpReply) error 
   buf, ok := pb.buffers[origin]
   if ok {
     res := buf.append(op)
-    fmt.Println("Recieved op", op)
     pb.recordShardBackup(origin, seg, op)
     if res == false {
       fmt.Println("buffer size exceeded in replica. should never happen.")
+      os.Exit(1)
     }
   } else {
     // TODO: when can this happen?
     fmt.Println("No buffer currently. Ignoring.")
+    os.Exit(1)
   }
 
   reply.Err = OK
@@ -888,6 +893,8 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
                   }
                 }
 
+                fmt.Println(op)
+
                 // update primary's clock
                 if maxOpID < op.Version {
                   pb.log.CurrOpID = op.Version
@@ -937,7 +944,6 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
                 }
 
                 if flushed || pb.broadcastForward(op, seg.ID, group) {
-                  fmt.Println("processing op ", flushed)
                   pb.store[op.Key] = &op
                 } else {
                   fmt.Println("backup failure on fwd")

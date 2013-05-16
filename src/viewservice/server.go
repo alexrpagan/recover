@@ -321,14 +321,14 @@ func (vs *ViewServer) RecoveryCompleted(args *RecoveryCompletedArgs, reply *Reco
 
   fmt.Printf("Recovered shard %d from server %s \n", args.ShardRecovered, args.ServerName)
   if args.DataRecieved > 0 {
-    fmt.Println("recovery completed in ", time.Since(vs.recoveryTimes[args.ServerName]))
-    fmt.Printf("recovery master recieved %d bytes of data\n", args.DataRecieved)
+    fmt.Println("-- recovery completed in ", time.Since(vs.recoveryTimes[args.ServerName]))
+    fmt.Printf("-- recieved %d bytes of data\n", args.DataRecieved)
   }
-
 
   shards, ok := vs.recoveryMasters[args.ServerName]
   if ! ok {
-    panic("Recovery master has no shards to recover. Should never happen.")
+    fmt.Println("Recovery master has no shards to recover. Should never happen.")
+    os.Exit(1)
   }
 
   delete(shards, args.ShardRecovered)
