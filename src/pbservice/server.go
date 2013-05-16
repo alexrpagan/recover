@@ -317,7 +317,7 @@ func (pb *PBServer) Put(args *PutArgs, reply *PutReply) error {
   putOp.Version = pb.log.CurrOpID
 
   shard := key2shard(putOp.Key)
-  if pb.view.ShardsToPrimaries[shard] == pb.me {
+  if pb.view.ShardsToPrimaries[shard] != pb.me {
     reply.Err = ErrWrongServer
     return nil
   }
@@ -359,7 +359,7 @@ func (pb *PBServer) checkPrimary(server string, segment int64, key string) Err {
 
   if key != "" {
     shard := key2shard(key)
-    if pb.view.ShardsToPrimaries[shard] == server {
+    if pb.view.ShardsToPrimaries[shard] != server {
       return ErrNotPrimary
     }
   }
