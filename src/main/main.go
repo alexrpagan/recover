@@ -204,15 +204,13 @@ func main() {
                 go func() {
                   times := make([]int64, numofputs)
                   ck := pbservice.MakeClerk("", vshostname, mode)
-                  var keyBuf bytes.Buffer
                   var valBuf bytes.Buffer
 
-                  io.CopyN(&keyBuf, &randomSrc, int64(8))
                   io.CopyN(&valBuf, &randomSrc, int64(valsize))
 
                   for i:=0; i < numofputs; i++ {
                     t1 := time.Now().UnixNano()
-                    ck.Put(keyBuf.String(), valBuf.String())
+                    ck.Put(fmt.Sprintf("%d", t1), valBuf.String())
                     t2 := time.Now().UnixNano()
                     times[i] = t2-t1
                     if i % 100 == 0 {

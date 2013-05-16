@@ -322,7 +322,7 @@ func (vs *ViewServer) RecoveryCompleted(args *RecoveryCompletedArgs, reply *Reco
   fmt.Printf("Recovered shard %d from server %s \n", args.ShardRecovered, args.ServerName)
   if args.DataRecieved > 0 {
     fmt.Println("-- recovery completed in ", time.Since(vs.recoveryTimes[args.ServerName]))
-    fmt.Printf("-- recieved %d bytes of data\n", args.DataRecieved)
+    fmt.Printf("-- recieved %f MB of data\n", float32(args.DataRecieved) / float32(1024 * 1024))
   }
 
   shards, ok := vs.recoveryMasters[args.ServerName]
