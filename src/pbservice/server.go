@@ -899,20 +899,27 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
                 seg, _ := pb.log.getCurrSegment()
                 group, ok := pb.backups[seg.ID]
 
+                if ! ok {
+                  if pb.enlistReplicas(*seg) == false {
+                    fmt.Println("couldn't enlist enough replicas")
+                    pb.mu.Unlock()
+                    return
+                  } else {
+                    group = pb.backups[seg.ID]
+                  }
+                }
+
                 newGroup := make([]string, 0)
                 for _, srv := range group.Backups {
                   _, dead := args.DeadPrimaries[srv]
                   if dead == false && pb.serversAlive[srv] {
                     newGroup = append(newGroup, srv)
-                  } else {
-                    fmt.Printf("srv %s reported dead\n", srv)
                   }
                 }
 
                 group.Backups = newGroup
                 pb.backups[seg.ID] = group
 
-                // normal put codepath
                 flushed := false
                 if seg.append(op) == false {
                   flushed = true
