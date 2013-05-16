@@ -769,6 +769,8 @@ func (pb *PBServer) PullSegmentsByShards(args *PullSegmentsByShardsArgs, reply *
         fmt.Println("Pulled from disk", segId, oldSeg.Size)
       }
 
+      fmt.Println(oldSeg)
+
       newSeg := Segment{}
       // filter out operations from irrelevant shards
       for _, op := range oldSeg.Ops {

@@ -14,6 +14,8 @@ import (
   "strings"
   "path"
   "strconv"
+  "math/rand"
+  "io"
 )
 
 var vs_idx = 0
@@ -88,6 +90,28 @@ func readHosts() []string {
   return hosts
 }
 
+type randomDataMaker struct {
+    src rand.Source
+}
+
+func (r *randomDataMaker) Read(p []byte) (n int, err error) {
+    todo := len(p)
+    offset := 0
+    for {
+        val := int64(r.src.Int63())
+        for i := 0; i < 8; i++ {
+            p[offset] = byte(val & 0xff)
+            todo--
+            if todo == 0 {
+                return len(p), nil
+            }
+            offset++
+            val >>= 8
+        }
+    }
+    panic("unreachable")
+}
+
 func main() {
 
   runtime.GOMAXPROCS(8)
@@ -107,6 +131,7 @@ func main() {
 
   if *repl {
     reader := bufio.NewReader(os.Stdin)
+    randomSrc := randomDataMaker{rand.NewSource(1)}
     ck := pbservice.MakeClerk("", vshostname, mode)
     timing := false  // show timing stats
     for {
@@ -169,33 +194,6 @@ func main() {
                 }
               }
             }
-          case "GETS":
-            msg := "Executing a bunch of gets."
-            if len(input) == 2 {
-              fmt.Println("STARTING: ", msg)
-              numofgets, err := strconv.Atoi(input[1])
-              if err == nil {
-                go func() {
-                  times := make([]int64, numofgets)
-                  for i:=0; i < numofgets; i++ {
-                    strkey := fmt.Sprintf("%d", i)
-                    t1 := time.Now().UnixNano()
-                    val := ck.Get(strkey)
-                    t2 := time.Now().UnixNano()
-                    if len(val) > 0 && val != "errnokey" {
-                      //no op
-                    } else {
-                      fmt.Printf("Lost write for key: %s, shard: %d\n", strkey, ck.WhichShard(strkey))
-                    }
-                    times[i] = t2-t1
-                  }
-                  fmt.Println("\nDONE: ", msg)
-                  printStats(times)
-                }()
-              } else {
-                fmt.Println("err parsing args.")
-              }
-            }
           case "PUTS":
             msg := "Executing a bunch of puts."
             if len(input) == 3 {
@@ -206,16 +204,20 @@ func main() {
                 go func() {
                   times := make([]int64, numofputs)
                   ck := pbservice.MakeClerk("", vshostname, mode)
-                  var buffer bytes.Buffer
-                  for i:=0; i < valsize ; i++ {
-                    buffer.WriteString("a")
-                  }
-                  valbase := buffer.String()
+                  var keyBuf bytes.Buffer
+                  var valBuf bytes.Buffer
+
+                  io.CopyN(&keyBuf, &randomSrc, int64(8))
+                  io.CopyN(&valBuf, &randomSrc, int64(valsize))
+
                   for i:=0; i < numofputs; i++ {
                     t1 := time.Now().UnixNano()
-                    ck.Put(fmt.Sprintf("%d", i), fmt.Sprintf("%s", valbase))
+                    ck.Put(keyBuf.String(), valBuf.String())
                     t2 := time.Now().UnixNano()
                     times[i] = t2-t1
+                    if i % 100 == 0 {
+                      fmt.Println("\nFinished ", i)
+                    }
                   }
                   fmt.Println("DONE: ", msg)
                   printStats(times)
