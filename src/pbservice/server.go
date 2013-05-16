@@ -352,24 +352,24 @@ func (pb *PBServer) Put(args *PutArgs, reply *PutReply) error {
 }
 
 func (pb *PBServer) checkPrimary(server string, segment int64, key string) Err {
-  correctPrimary := true
-  if key != "" {
-    for i:=0; i < Retries; i++ {
-      shard := key2shard(key)
-      if pb.view.ShardsToPrimaries[shard] != server {
-        // maybe not the primary
-        correctPrimary = false
-      } else {
-        correctPrimary = true
-        break
-      }
-      pb.tick() // update view to be sure
-    }
-  }
-
-  if correctPrimary == false {
-    return ErrWrongServer
-  }
+  // correctPrimary := true
+  // if key != "" {
+  //   for i:=0; i < Retries; i++ {
+  //     shard := key2shard(key)
+  //     if pb.view.ShardsToPrimaries[shard] != server {
+  //       // maybe not the primary
+  //       correctPrimary = false
+  //     } else {
+  //       correctPrimary = true
+  //       break
+  //     }
+  //     pb.tick() // update view to be sure
+  //     time.Sleep(50 * time.Millisecond)
+  //   }
+  // }
+  // if correctPrimary == false {
+  //   return ErrWrongServer
+  // }
 
   if segment != int64(0) {
     segs, _ := pb.backedUpSegs[server]
