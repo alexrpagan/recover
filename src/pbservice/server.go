@@ -284,6 +284,8 @@ func (pb *PBServer) Put(args *PutArgs, reply *PutReply) error {
   group.Backups = newGroup
   pb.backups[seg.ID] = group
 
+  fmt.Println(group)
+
   if ! ok {
     if pb.enlistReplicas(*seg) == false {
       fmt.Println("couldn't enlist enough replicas")
