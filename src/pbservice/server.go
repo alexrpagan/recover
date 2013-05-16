@@ -573,6 +573,9 @@ func (pb *PBServer) ForwardOp(args *ForwardOpArgs, reply *ForwardOpReply) error 
   buf, ok := pb.buffers[origin]
   if ok {
     res := buf.append(op)
+
+    fmt.Println("Recieved op", op)
+
     pb.recordShardBackup(origin, seg, op)
     if res == false {
       fmt.Println("buffer size exceeded in replica. should never happen.")
@@ -766,10 +769,9 @@ func (pb *PBServer) PullSegmentsByShards(args *PullSegmentsByShardsArgs, reply *
       } else {
         fname := strconv.Itoa(int(segId))
         oldSeg.slurp(path.Join(SegPath, pb.meHash, pb.md5Digest(args.Owner), fname))
-        fmt.Println("Pulled from disk", segId, oldSeg.Size)
       }
 
-      fmt.Println(oldSeg)
+      fmt.Println("Segment", oldSeg)
 
       newSeg := Segment{}
       // filter out operations from irrelevant shards
