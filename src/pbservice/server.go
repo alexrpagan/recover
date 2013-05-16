@@ -746,6 +746,8 @@ func (pb *PBServer) QuerySegments(args *QuerySegmentsArgs, reply *QuerySegmentsR
   reply.ServerName = pb.me
   reply.BackedUpSegments = relevant
 
+  fmt.Println(relevant)
+
   return nil
 }
 
