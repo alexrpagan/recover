@@ -392,7 +392,7 @@ func (pb *PBServer) enlistReplicas(segment Segment) bool {
   enlistArgs.Origin = pb.me
   enlistArgs.Segment = segment
 
-  if numHosts <= hostsNeeded {
+  if numHosts < hostsNeeded {
     fmt.Println("Not enough hosts", numHosts, hostsNeeded, pb.serversAlive)
     return false
   }
