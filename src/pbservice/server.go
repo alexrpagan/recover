@@ -37,7 +37,7 @@ const RepLevel = 2
 // number of times to retry
 const Retries = 5
 
-// absolute path to where log segments should be stored
+// absolute path where log segments should be stored
 const SegPath = "/tmp/segment/"
 
 
@@ -256,8 +256,7 @@ func (pb *PBServer) Get(args *GetArgs, reply *GetReply) error {
   defer pb.mu.Unlock()
 
   shard := key2shard(args.Key)
-  // CHECK: am I the primary for this key
-  if shard > 0 && false {
+  if pb.view.ShardsToPrimaries[shard] != pb.me {
     reply.Err = ErrWrongServer
     return nil
   }
@@ -353,12 +352,25 @@ func (pb *PBServer) Put(args *PutArgs, reply *PutReply) error {
 }
 
 func (pb *PBServer) checkPrimary(server string, segment int64, key string) Err {
-
+  correctPrimary := true
   if key != "" {
-    shard := key2shard(key)
-    if pb.view.ShardsToPrimaries[shard] != server {
-      return ErrNotPrimary
+    for i:=0; i < Retries; i++ {
+      shard := key2shard(key)
+      if pb.view.ShardsToPrimaries[shard] != server {
+        // maybe not the primary
+        correctPrimary = false
+      } else {
+        correctPrimary = true
+        break
+      }
+      pb.mu.Unlock()
+      pb.tick() // update view to be sure
+      pb.mu.Lock()
     }
+  }
+
+  if correctPrimary == false {
+    return ErrWrongServer
   }
 
   if segment != int64(0) {
