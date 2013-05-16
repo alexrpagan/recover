@@ -763,10 +763,6 @@ func (pb *PBServer) QuerySegments(args *QuerySegmentsArgs, reply *QuerySegmentsR
   reply.ServerName = pb.me
   reply.BackedUpSegments = relevant
 
-  fmt.Println(args.DeadPrimaries)
-  fmt.Println(pb.backedUpSegs)
-  fmt.Println(relevant)
-
   return nil
 }
 
@@ -789,8 +785,6 @@ func (pb *PBServer) PullSegmentsByShards(args *PullSegmentsByShardsArgs, reply *
         fname := strconv.Itoa(int(segId))
         oldSeg.slurp(path.Join(SegPath, pb.meHash, pb.md5Digest(args.Owner), fname))
       }
-
-      fmt.Println("Segment", oldSeg)
 
       newSeg := Segment{}
       // filter out operations from irrelevant shards
@@ -897,13 +891,10 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
                   // if the version of the key in the data store is more up-to-date,
                   // don't bother processing the recovered operation.
                   if currOp.Version > op.Version {
-                    fmt.Println("Skipping op", currOp, op)
                     pb.mu.Unlock()
                     continue
                   }
                 }
-
-                fmt.Println(op)
 
                 seg, _ := pb.log.getCurrSegment()
                 group, ok := pb.backups[seg.ID]
