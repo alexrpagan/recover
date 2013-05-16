@@ -307,7 +307,7 @@ func (pb *PBServer) Put(args *PutArgs, reply *PutReply) error {
     }
   }
 
-  pb.log.CurrOpID++
+  oldOp, ok := pb.store[args.Key]
 
   // create operation
   putOp := new(Op)
@@ -316,7 +316,11 @@ func (pb *PBServer) Put(args *PutArgs, reply *PutReply) error {
   putOp.Type = PutOp
   putOp.Key = args.Key
   putOp.Value = args.Value
-  putOp.Version = pb.log.CurrOpID
+  if ok {
+    putOp.Version = oldOp.Version + 1
+  } else {
+    putOp.Version = 1
+  }
 
   flushed := false
   if seg.append(*putOp) == false {
@@ -887,7 +891,6 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
 
                 op := newOp
 
-                maxOpID := pb.log.CurrOpID
                 currOp, ok := pb.store[op.Key]
 
                 if ok {
@@ -901,14 +904,6 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
                 }
 
                 fmt.Println(op)
-
-                // update primary's clock
-                if maxOpID < op.Version {
-                  pb.log.CurrOpID = op.Version
-                } else {
-                  pb.log.CurrOpID++
-                  op.Version = pb.log.CurrOpID
-                }
 
                 seg, _ := pb.log.getCurrSegment()
                 group, ok := pb.backups[seg.ID]
