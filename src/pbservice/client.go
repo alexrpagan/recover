@@ -17,7 +17,7 @@ import (
 
 // clerk for the pbservice which encapsulates a viewservice clerk
 type Clerk struct {
-	vs *viewservice.Clerk
+  vs *viewservice.Clerk
   view viewservice.View
   ClientID int64
   RequestID int64
@@ -38,7 +38,7 @@ func MakeClerk(me string, vshost string, networkMode string) *Clerk {
 func call(srv string, rpcname string, networkMode string, args interface{}, reply interface{}) bool {
   c, errx := rpc.Dial(networkMode, srv)
   if errx != nil {
-    fmt.Println(rpcname, errx)
+    // fmt.Println(rpcname, errx)
     return false
   }
   defer c.Close()
@@ -61,13 +61,15 @@ func (ck *Clerk) Get(key string) string {
   args.Key = key
   var reply GetReply
 
-	// retry Get until succesful, updating view each attempt
-  for {
+  // retry Get until succesful, updating view each attempt
+  for i:=0; i < Retries; i++ {
     shard := key2shard(args.Key)
     primary, ok := ck.view.ShardsToPrimaries[shard]
     if ok {
       ack := call(primary, "PBServer.Get", ck.networkMode, args, &reply)
-      if ack { break }
+      if ack && (reply.Err == OK || reply.Err == ErrNoKey) {
+        break
+      }
     }
     ck.updateView()
     time.Sleep(viewservice.PING_INTERVAL)
