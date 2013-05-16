@@ -384,13 +384,13 @@ func StartMe(me string, networkMode string) *ViewServer {
   rpcs := rpc.NewServer()
   rpcs.Register(vs)
 
-    hostname := vs.me
+  hostname := vs.me
   if networkMode == "unix" {
-      os.Remove(hostname)
-    } else if networkMode == "tcp" {
-      arr := strings.Split(hostname, ":")
-      hostname = ":" + arr[1]
-    }
+    os.Remove(hostname)
+  } else if networkMode == "tcp" {
+    arr := strings.Split(hostname, ":")
+    hostname = ":" + arr[1]
+  }
 
   l, e := net.Listen(networkMode, hostname);
 

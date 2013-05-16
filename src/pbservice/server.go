@@ -717,9 +717,7 @@ func (pb *PBServer) tick() {
   if err == nil {
     // don't bother waiting for the lock.
     go func() {
-      // fmt.Println("tick lock", pb.me)
       pb.mu.Lock()
-      // fmt.Println("tick acq", pb.me)
       if pb.view.ViewNumber < view.ViewNumber {
         pb.view = view
         pb.serversAlive = serversAlive
@@ -901,6 +899,8 @@ func (pb *PBServer) ElectRecoveryMaster(args *ElectRecoveryMasterArgs, reply *El
                   _, dead := args.DeadPrimaries[srv]
                   if dead == false && pb.serversAlive[srv] {
                     newGroup = append(newGroup, srv)
+                  } else {
+                    fmt.Printf("srv %s reported dead\n", srv)
                   }
                 }
 
