@@ -363,9 +363,7 @@ func (pb *PBServer) checkPrimary(server string, segment int64, key string) Err {
         correctPrimary = true
         break
       }
-      pb.mu.Unlock()
       pb.tick() // update view to be sure
-      pb.mu.Lock()
     }
   }
 
